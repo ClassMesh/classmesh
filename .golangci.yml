@@ -1,0 +1,33 @@
+# golangci-lint v2 configuration.
+#
+# Kept intentionally lean: strict enough to catch real bugs
+# (errcheck, staticcheck, ineffassign, unused) without drowning early
+# development in style noise. Revisit and add more linters once the
+# codebase has shape.
+
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - ineffassign
+    - unused
+    - gocritic
+  exclusions:
+    generated: strict
+    paths:
+      - bin/
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    generated: strict
+    paths:
+      - bin/
