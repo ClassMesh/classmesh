@@ -29,6 +29,11 @@ type Deps struct {
 	Review sink.Sink
 	// Logger defaults to slog.Default.
 	Logger *slog.Logger
+	// MinConfidence is the gate: a stage's classification below this
+	// threshold is treated as undecided and the record escalates to the
+	// next stage. Zero disables gating. Deterministic stages emit 1, so
+	// they always pass.
+	MinConfidence float64
 }
 
 // Stats summarizes one Run.
@@ -46,11 +51,12 @@ type Stats struct {
 
 // Engine drives records through the cascade.
 type Engine struct {
-	source source.Source
-	stages []stage.Stage
-	sink   sink.Sink
-	review sink.Sink
-	logger *slog.Logger
+	source        source.Source
+	stages        []stage.Stage
+	sink          sink.Sink
+	review        sink.Sink
+	logger        *slog.Logger
+	minConfidence float64
 }
 
 // New validates deps and returns a ready Engine.
@@ -64,15 +70,19 @@ func New(d Deps) (*Engine, error) {
 	if d.Sink == nil {
 		return nil, errors.New("engine: sink is required")
 	}
+	if d.MinConfidence < 0 || d.MinConfidence > 1 {
+		return nil, errors.New("engine: min confidence must be within [0, 1]")
+	}
 	if d.Logger == nil {
 		d.Logger = slog.Default()
 	}
 	return &Engine{
-		source: d.Source,
-		stages: d.Stages,
-		sink:   d.Sink,
-		review: d.Review,
-		logger: d.Logger,
+		source:        d.Source,
+		stages:        d.Stages,
+		sink:          d.Sink,
+		review:        d.Review,
+		logger:        d.Logger,
+		minConfidence: d.MinConfidence,
 	}, nil
 }
 
@@ -116,7 +126,7 @@ func (e *Engine) Run(ctx context.Context) (Stats, error) {
 
 // classify runs r through the cascade. It returns the classification and
 // the deciding stage's name, or an empty name when every stage returned
-// ErrUnclassified.
+// ErrUnclassified or decided below the confidence gate.
 func (e *Engine) classify(ctx context.Context, r domain.Record) (domain.Classification, string, error) {
 	for _, st := range e.stages {
 		c, err := st.Classify(ctx, r)
@@ -125,6 +135,12 @@ func (e *Engine) classify(ctx context.Context, r domain.Record) (domain.Classifi
 		}
 		if err != nil {
 			return domain.Classification{}, "", fmt.Errorf("engine: stage %s: %w", st.Name(), err)
+		}
+		if c.Confidence < e.minConfidence {
+			e.logger.Debug("classification below confidence gate, escalating",
+				"record", r.ID, "stage", st.Name(), "category", c.Category,
+				"confidence", c.Confidence, "gate", e.minConfidence)
+			continue
 		}
 		return c, st.Name(), nil
 	}
