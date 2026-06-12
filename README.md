@@ -23,6 +23,28 @@ Everything is an interface: input sources, classification stages, and output sin
 - `shared/` — domain types and the contracts (`source`, `stage`, `sink`) with in-memory implementations for testing
 - `services/cli/` — the `classmesh` binary
 
+## Performance
+
+Measured on a single core (AMD Ryzen 7 3800X, Go 1.22, `make bench`):
+
+| Path | Per record | Throughput | Allocations |
+|---|---|---|---|
+| Rules stage, first-rule hit | 27 ns | ~37M records/sec | 0 |
+| Rules stage, worst case (20-rule walk, regex-heavy) | ~7 µs | ~140k records/sec | 0 |
+| Full pipeline (engine + rules + sink) | 435 ns | ~2.3M records/sec | 0 |
+
+Per-record cost depends on your ruleset: order rules by expected volume so the
+hot path exits early.
+
+The comparison that motivates the cascade: classifying 1M short log lines with
+a budget LLM API (≈25 input + 5 output tokens each at $0.15/$0.60 per million
+tokens) costs ≈ **$6.75 per million lines** and runs at API latency. The rules
+stage does the same volume in well under a second per core for the cost of the
+electricity — and the cascade design only forwards the records rules can't
+decide to anything that costs money.
+
+Reproduce: `make bench`.
+
 ## Development
 
 ```
