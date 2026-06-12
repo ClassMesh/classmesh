@@ -18,7 +18,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache: false
+          cache-dependency-path: shared/go.sum
       - name: Verify module checksums
         run: make verify
       - name: Vet
