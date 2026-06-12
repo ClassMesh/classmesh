@@ -1,26 +1,29 @@
-// Command classmesh is the ClassMesh CLI. For now it only reports its
-// version; pipeline wiring lands in follow-up changes.
+// Command classmesh is the ClassMesh CLI: a classification cascade pipeline
+// in one binary. See `classmesh run --help`.
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
-	"github.com/ClassMesh/classmesh/shared/pkg/version"
+	"github.com/ClassMesh/classmesh/services/cli/internal/app"
 )
 
 func main() {
-	if err := run(os.Args[1:]); err != nil {
-		fmt.Fprintf(os.Stderr, "classmesh: %v\n", err)
-		os.Exit(1)
-	}
+	os.Exit(run())
 }
 
-func run(args []string) error {
-	if len(args) > 0 && args[0] == "version" {
-		fmt.Printf("classmesh %s (commit %s, built %s)\n", version.Version, version.Commit, version.Date)
-		return nil
+func run() int {
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	err := app.Run(ctx, os.Args[1:], app.Streams{In: os.Stdin, Out: os.Stdout, Err: os.Stderr})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "classmesh: %v\n", err)
+		return 1
 	}
-	fmt.Println("classmesh: classification pipeline. Usage: classmesh version")
-	return nil
+	return 0
 }
