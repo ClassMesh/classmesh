@@ -49,7 +49,7 @@ func usage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, `classmesh — classification cascade pipeline
 
 Usage:
-  classmesh run --rules rules.yml [--review review.jsonl] [file ...]
+  classmesh run --rules rules.yml [--review review.jsonl] [--min-confidence 0.7] [file ...]
   classmesh version
 
 run reads lines from the given files (or stdin when none), classifies each
@@ -64,6 +64,7 @@ func runPipeline(ctx context.Context, args []string, s Streams) error {
 	fs.SetOutput(s.Err)
 	rulesPath := fs.String("rules", "", "path to the YAML rules file (required)")
 	reviewPath := fs.String("review", "", "write unclassified records to this JSONL file")
+	minConfidence := fs.Float64("min-confidence", 0, "classifications below this confidence escalate to the next stage (0 disables)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -97,7 +98,7 @@ func runPipeline(ctx context.Context, args []string, s Streams) error {
 	total := engine.Stats{ByStage: make(map[string]int)}
 	inputs := fs.Args()
 	if len(inputs) == 0 {
-		stats, err := runOne(ctx, textfile.New(s.In, "stdin"), ruleStage, out, review, logger)
+		stats, err := runOne(ctx, textfile.New(s.In, "stdin"), ruleStage, out, review, logger, *minConfidence)
 		merge(&total, stats)
 		if err != nil {
 			return err
@@ -108,7 +109,7 @@ func runPipeline(ctx context.Context, args []string, s Streams) error {
 		if err != nil {
 			return err
 		}
-		stats, err := runOne(ctx, src, ruleStage, out, review, logger)
+		stats, err := runOne(ctx, src, ruleStage, out, review, logger, *minConfidence)
 		merge(&total, stats)
 		if err != nil {
 			return err
@@ -120,14 +121,15 @@ func runPipeline(ctx context.Context, args []string, s Streams) error {
 	return nil
 }
 
-func runOne(ctx context.Context, src *textfile.Source, st stage.Stage, out, review sink.Sink, logger *slog.Logger) (engine.Stats, error) {
+func runOne(ctx context.Context, src *textfile.Source, st stage.Stage, out, review sink.Sink, logger *slog.Logger, minConfidence float64) (engine.Stats, error) {
 	defer func() { _ = src.Close() }()
 	e, err := engine.New(engine.Deps{
-		Source: src,
-		Stages: []stage.Stage{st},
-		Sink:   out,
-		Review: review,
-		Logger: logger,
+		Source:        src,
+		Stages:        []stage.Stage{st},
+		Sink:          out,
+		Review:        review,
+		Logger:        logger,
+		MinConfidence: minConfidence,
 	})
 	if err != nil {
 		return engine.Stats{}, err
