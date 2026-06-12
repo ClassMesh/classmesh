@@ -1,0 +1,92 @@
+// Package textfile implements source.Source over line-oriented text: files
+// and stdin. Every line becomes one Record, losslessly — blank lines
+// included — so downstream stages see exactly what the input contained.
+package textfile
+
+import (
+	"bufio"
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"strconv"
+
+	"github.com/ClassMesh/classmesh/shared/pkg/domain"
+	"github.com/ClassMesh/classmesh/shared/pkg/source"
+)
+
+// maxLineBytes bounds a single line. Log lines routinely exceed bufio's
+// 64KiB default (stack traces, embedded JSON), so allow up to 1MiB.
+const maxLineBytes = 1 << 20
+
+// Source yields one Record per line of the underlying reader.
+type Source struct {
+	rc      io.Closer
+	scanner *bufio.Scanner
+	name    string
+	line    int
+	closed  bool
+}
+
+var _ source.Source = (*Source)(nil)
+
+// New returns a Source reading lines from r. name labels the stream in
+// record IDs and metadata (e.g. "stdin", a file path). If r is an io.Closer
+// it is closed by Close.
+func New(r io.Reader, name string) *Source {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64*1024), maxLineBytes)
+	s := &Source{scanner: sc, name: name}
+	if c, ok := r.(io.Closer); ok {
+		s.rc = c
+	}
+	return s
+}
+
+// Open returns a Source reading lines from the file at path.
+func Open(path string) (*Source, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, fmt.Errorf("textfile: %w", err)
+	}
+	return New(f, path), nil
+}
+
+// Next implements source.Source. Line numbers are 1-based.
+func (s *Source) Next(ctx context.Context) (domain.Record, error) {
+	if err := ctx.Err(); err != nil {
+		return domain.Record{}, err
+	}
+	if s.closed {
+		return domain.Record{}, source.ErrDrained
+	}
+	if !s.scanner.Scan() {
+		if err := s.scanner.Err(); err != nil {
+			return domain.Record{}, fmt.Errorf("textfile: %s: %w", s.name, err)
+		}
+		return domain.Record{}, source.ErrDrained
+	}
+	s.line++
+	line := strconv.Itoa(s.line)
+	data := make([]byte, len(s.scanner.Bytes()))
+	copy(data, s.scanner.Bytes())
+	return domain.Record{
+		ID:   s.name + ":" + line,
+		Data: data,
+		Meta: map[string]string{"source": s.name, "line": line},
+	}, nil
+}
+
+// Close implements source.Source. Safe to call more than once.
+func (s *Source) Close() error {
+	if s.closed {
+		return nil
+	}
+	s.closed = true
+	if s.rc != nil {
+		if err := s.rc.Close(); err != nil {
+			return fmt.Errorf("textfile: close %s: %w", s.name, err)
+		}
+	}
+	return nil
+}
