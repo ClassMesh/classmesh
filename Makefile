@@ -51,3 +51,7 @@ lint:
 ## clean: remove build artifacts
 clean:
 	rm -rf $(BIN) coverage.out
+
+## bench: run benchmarks across workspace modules
+bench:
+	go test -bench=. -benchmem -run=^$$ ./shared/pkg/stage/rules/... ./shared/pkg/engine/...
