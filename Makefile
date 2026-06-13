@@ -13,12 +13,22 @@ LDFLAGS := -s -w \
            -X github.com/ClassMesh/classmesh/shared/pkg/version.Commit=$(COMMIT) \
            -X github.com/ClassMesh/classmesh/shared/pkg/version.Date=$(DATE)
 
-.PHONY: build test coverage vet fmt tidy verify lint clean
+.PHONY: build cgo-check test coverage vet fmt tidy verify lint clean
 
-## build: compile every service binary into ./bin
+## build: compile every service binary into ./bin (cgo-free, single static binary)
 build:
 	mkdir -p $(BIN)
-	go build -ldflags '$(LDFLAGS)' -o $(BIN)/classmesh ./services/cli/cmd/classmesh
+	CGO_ENABLED=0 go build -ldflags '$(LDFLAGS)' -o $(BIN)/classmesh ./services/cli/cmd/classmesh
+
+## cgo-check: assert the shipped binary built cgo-free — statically linked, no C deps.
+## (`-race` tests still need cgo, so the guarantee is enforced on the artifact, not the test harness.)
+cgo-check: build
+	@if file $(BIN)/classmesh | grep -q 'statically linked'; then \
+	  echo 'cgo-free OK: classmesh is statically linked (CGO_ENABLED=0)'; \
+	else \
+	  echo 'NOT cgo-free: classmesh is dynamically linked — a cgo dependency leaked in'; \
+	  file $(BIN)/classmesh; exit 1; \
+	fi
 
 ## test: run every test in every workspace module with the race detector
 test:

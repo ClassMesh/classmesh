@@ -23,8 +23,8 @@ jobs:
         run: make verify
       - name: Vet
         run: make vet
-      - name: Build
-        run: make build
+      - name: Build (cgo-free) and assert static linking
+        run: make cgo-check
       - name: Test with coverage
         run: make coverage
       - name: Upload coverage
