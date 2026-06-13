@@ -144,3 +144,15 @@ func TestRunMissingRulesFileFails(t *testing.T) {
 		t.Fatal("Run() error = nil, want error for missing rules file")
 	}
 }
+
+func TestRunRejectsInvalidMinConfidence(t *testing.T) {
+	dir := t.TempDir()
+	rulesPath := writeFile(t, dir, "rules.yml", testRules)
+	var out, errOut bytes.Buffer
+	err := Run(context.Background(),
+		[]string{"run", "--rules", rulesPath, "--min-confidence", "1.5"},
+		Streams{In: strings.NewReader("x\n"), Out: &out, Err: &errOut})
+	if err == nil || !strings.Contains(err.Error(), "min confidence") {
+		t.Fatalf("Run() error = %v, want min confidence validation error", err)
+	}
+}

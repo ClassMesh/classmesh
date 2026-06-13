@@ -168,3 +168,102 @@ func TestRunHonorsContextCancellation(t *testing.T) {
 		t.Fatalf("Run() error = %v, want context.Canceled", err)
 	}
 }
+
+type scoredStage struct {
+	name       string
+	confidence float64
+}
+
+func (s scoredStage) Name() string { return s.name }
+func (s scoredStage) Classify(context.Context, domain.Record) (domain.Classification, error) {
+	return domain.Classification{Category: "cat-" + s.name, Confidence: s.confidence, Stage: s.name}, nil
+}
+
+func TestNewRejectsInvalidMinConfidence(t *testing.T) {
+	for _, bad := range []float64{-0.1, 1.5} {
+		_, err := New(Deps{
+			Source:        source.NewInMemory(nil),
+			Stages:        []stage.Stage{stage.NewStatic("s", nil)},
+			Sink:          sink.NewInMemory(),
+			MinConfidence: bad,
+		})
+		if err == nil || !strings.Contains(err.Error(), "min confidence") {
+			t.Fatalf("New(MinConfidence=%v) error = %v, want min confidence error", bad, err)
+		}
+	}
+}
+
+func TestRunConfidenceGateEscalates(t *testing.T) {
+	src := source.NewInMemory(records("a"))
+	low := scoredStage{name: "low", confidence: 0.4}
+	high := scoredStage{name: "high", confidence: 0.9}
+	classified := sink.NewInMemory()
+
+	e, err := New(Deps{
+		Source:        src,
+		Stages:        []stage.Stage{low, high},
+		Sink:          classified,
+		MinConfidence: 0.7,
+		Logger:        discardLogger(),
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	stats, err := e.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if stats.Classified != 1 || stats.ByStage["high"] != 1 || stats.ByStage["low"] != 0 {
+		t.Fatalf("stats = %+v, want the high-confidence stage to decide", stats)
+	}
+	got := classified.Entries()
+	if len(got) != 1 || got[0].Classification.Stage != "high" || got[0].Classification.Confidence != 0.9 {
+		t.Fatalf("entry = %+v, want high stage classification", got)
+	}
+}
+
+func TestRunConfidenceGateRoutesToReviewWhenNothingPasses(t *testing.T) {
+	src := source.NewInMemory(records("a"))
+	review := sink.NewInMemory()
+	e, err := New(Deps{
+		Source:        src,
+		Stages:        []stage.Stage{scoredStage{name: "low", confidence: 0.3}},
+		Sink:          sink.NewInMemory(),
+		Review:        review,
+		MinConfidence: 0.7,
+		Logger:        discardLogger(),
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	stats, err := e.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if stats.Reviewed != 1 || stats.Classified != 0 {
+		t.Fatalf("stats = %+v, want the gated record in review", stats)
+	}
+	if len(review.Entries()) != 1 {
+		t.Fatalf("review entries = %d, want 1", len(review.Entries()))
+	}
+}
+
+func TestRunZeroGateIsDisabled(t *testing.T) {
+	src := source.NewInMemory(records("a"))
+	e, err := New(Deps{
+		Source: src,
+		Stages: []stage.Stage{scoredStage{name: "any", confidence: 0.01}},
+		Sink:   sink.NewInMemory(),
+		Logger: discardLogger(),
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	stats, err := e.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if stats.Classified != 1 {
+		t.Fatalf("stats = %+v, want low-confidence decision accepted with gate disabled", stats)
+	}
+}
