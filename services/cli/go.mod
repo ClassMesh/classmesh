@@ -1,6 +1,6 @@
 module github.com/ClassMesh/classmesh/services/cli
 
-go 1.22
+go 1.25.0
 
 require github.com/ClassMesh/classmesh/shared v0.0.0
 
