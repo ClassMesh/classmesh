@@ -2,6 +2,7 @@ package jsonl
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -40,9 +41,9 @@ func TestNextYieldsObjectsWithFieldsAndMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Next() #2 error = %v", err)
 	}
-	// JSON numbers decode as float64.
-	if second.Fields["n"] != float64(42) {
-		t.Fatalf("Next() #2 Fields[n] = %v (%T), want 42", second.Fields["n"], second.Fields["n"])
+	// Numbers decode as json.Number to stay exact.
+	if second.Fields["n"] != json.Number("42") {
+		t.Fatalf("Next() #2 Fields[n] = %v (%T), want json.Number 42", second.Fields["n"], second.Fields["n"])
 	}
 	if _, err := s.Next(ctx); !errors.Is(err, source.ErrDrained) {
 		t.Fatalf("Next() after last error = %v, want ErrDrained", err)
@@ -59,14 +60,14 @@ func TestSkipsBlankLinesAndKeepsTrueLineNumbers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Next() error = %v", err)
 	}
-	if r1.Meta["line"] != "2" || r1.Fields["a"] != float64(1) {
+	if r1.Meta["line"] != "2" || r1.Fields["a"] != json.Number("1") {
 		t.Fatalf("Next() = line %s fields %v, want line 2 a=1", r1.Meta["line"], r1.Fields)
 	}
 	r2, err := s.Next(ctx)
 	if err != nil {
 		t.Fatalf("Next() #2 error = %v", err)
 	}
-	if r2.Meta["line"] != "4" || r2.Fields["b"] != float64(2) {
+	if r2.Meta["line"] != "4" || r2.Fields["b"] != json.Number("2") {
 		t.Fatalf("Next() #2 = line %s fields %v, want line 4 b=2", r2.Meta["line"], r2.Fields)
 	}
 	if _, err := s.Next(ctx); !errors.Is(err, source.ErrDrained) {
@@ -88,6 +89,34 @@ func TestMalformedLineFailsWithLocation(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "bad:2") {
 		t.Fatalf("Next() #2 error = %v, want source:line in message", err)
+	}
+}
+
+func TestNumbersKeepExactValue(t *testing.T) {
+	// A 19-digit id exceeds float64's exact-integer range (2^53); json.Number
+	// keeps it verbatim where float64 would round it.
+	s := New(strings.NewReader(`{"id":9007199254740993}`+"\n"), "ids")
+	t.Cleanup(func() { _ = s.Close() })
+
+	r, err := s.Next(context.Background())
+	if err != nil {
+		t.Fatalf("Next() error = %v", err)
+	}
+	if r.Fields["id"] != json.Number("9007199254740993") {
+		t.Fatalf("Next() Fields[id] = %v (%T), want exact json.Number", r.Fields["id"], r.Fields["id"])
+	}
+}
+
+func TestTrailingDataFails(t *testing.T) {
+	// Including stray closing delimiters, which Decoder.More would miss.
+	for _, in := range []string{`{"a":1} oops`, `{"a":1}}`, `{"a":1}]`, `{"a":1}{"b":2}`} {
+		t.Run(in, func(t *testing.T) {
+			s := New(strings.NewReader(in+"\n"), "tail")
+			t.Cleanup(func() { _ = s.Close() })
+			if _, err := s.Next(context.Background()); err == nil {
+				t.Fatalf("Next(%q) error = nil, want error for data after the JSON object", in)
+			}
+		})
 	}
 }
 
