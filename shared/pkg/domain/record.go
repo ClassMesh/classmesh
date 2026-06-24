@@ -31,6 +31,15 @@ type Record struct {
 	Meta map[string]string
 }
 
+// Reason explains why a stage picked a category. A stage may attach zero
+// or more.
+type Reason struct {
+	// Code is a short tag for the evidence, like a rule ID.
+	Code string
+	// Detail is a readable description.
+	Detail string
+}
+
 // Classification is the outcome of running a Record through a stage.
 type Classification struct {
 	// Category is the assigned label.
@@ -39,6 +48,8 @@ type Classification struct {
 	Confidence float64
 	// Stage names the stage that produced this classification.
 	Stage string
+	// Reasons is optional evidence for the classification.
+	Reasons []Reason
 }
 
 // IsValid reports whether the classification is well-formed: a non-empty
