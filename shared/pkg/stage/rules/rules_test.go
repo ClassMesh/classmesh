@@ -2,6 +2,7 @@ package rules
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -69,6 +70,135 @@ func TestClassifyFirstMatchWins(t *testing.T) {
 	}
 }
 
+func rec(fields map[string]any) domain.Record {
+	return domain.Record{Kind: domain.KindJSON, Fields: fields}
+}
+
+func TestClassifyFieldMatchers(t *testing.T) {
+	cases := []struct {
+		name   string
+		yml    string
+		fields map[string]any
+		want   string // "" means ErrUnclassified
+	}{
+		{
+			"exact match",
+			"rules:\n  - category: alert\n    fields:\n      - path: level\n        exact: error",
+			map[string]any{"level": "error"}, "alert",
+		},
+		{
+			"exact no match",
+			"rules:\n  - category: alert\n    fields:\n      - path: level\n        exact: error",
+			map[string]any{"level": "info"}, "",
+		},
+		{
+			"exact on nested number is stringified",
+			"rules:\n  - category: se\n    fields:\n      - path: http.status\n        exact: \"500\"",
+			map[string]any{"http": map[string]any{"status": float64(500)}}, "se",
+		},
+		{
+			"exact on a large integer id stays decimal, not scientific",
+			"rules:\n  - category: hit\n    fields:\n      - path: id\n        exact: \"1234567\"",
+			map[string]any{"id": float64(1234567)}, "hit",
+		},
+		{
+			"exact on a decimal number",
+			"rules:\n  - category: hit\n    fields:\n      - path: ratio\n        exact: \"0.5\"",
+			map[string]any{"ratio": float64(0.5)}, "hit",
+		},
+		{
+			"exact on a Go int value",
+			"rules:\n  - category: se\n    fields:\n      - path: code\n        exact: \"500\"",
+			map[string]any{"code": 500}, "se",
+		},
+		{
+			"exact on a json.Number value",
+			"rules:\n  - category: se\n    fields:\n      - path: code\n        exact: \"500\"",
+			map[string]any{"code": json.Number("500")}, "se",
+		},
+		{
+			"contains",
+			"rules:\n  - category: t\n    fields:\n      - path: msg\n        contains: timeout",
+			map[string]any{"msg": "connection timeout exceeded"}, "t",
+		},
+		{
+			"regex on nested number",
+			"rules:\n  - category: se\n    fields:\n      - path: http.status\n        regex: \"^5\"",
+			map[string]any{"http": map[string]any{"status": float64(503)}}, "se",
+		},
+		{
+			"exists true matches present",
+			"rules:\n  - category: traced\n    fields:\n      - path: trace_id\n        exists: true",
+			map[string]any{"trace_id": "abc"}, "traced",
+		},
+		{
+			"exists true but absent",
+			"rules:\n  - category: traced\n    fields:\n      - path: trace_id\n        exists: true",
+			map[string]any{"other": "x"}, "",
+		},
+		{
+			"exists false matches a structured record missing the field",
+			"rules:\n  - category: untraced\n    fields:\n      - path: trace_id\n        exists: false",
+			map[string]any{"other": "x"}, "untraced",
+		},
+		{
+			"exists false matches an empty structured record",
+			"rules:\n  - category: untraced\n    fields:\n      - path: trace_id\n        exists: false",
+			map[string]any{}, "untraced",
+		},
+		{
+			"exists false does not match a record with no fields",
+			"rules:\n  - category: untraced\n    fields:\n      - path: trace_id\n        exists: false",
+			nil, "",
+		},
+		{
+			"non-scalar value never matches a string condition",
+			"rules:\n  - category: t\n    fields:\n      - path: http\n        contains: status",
+			map[string]any{"http": map[string]any{"status": float64(500)}}, "",
+		},
+		{
+			"missing field does not match",
+			"rules:\n  - category: alert\n    fields:\n      - path: level\n        exact: error",
+			nil, "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := mustParse(t, tc.yml)
+			c, err := s.Classify(context.Background(), rec(tc.fields))
+			if tc.want == "" {
+				if !errors.Is(err, stage.ErrUnclassified) {
+					t.Fatalf("Classify() error = %v, want ErrUnclassified", err)
+				}
+				return
+			}
+			if err != nil || c.Category != tc.want || c.Confidence != 1 {
+				t.Fatalf("Classify() = %+v, %v, want category %s confidence 1", c, err, tc.want)
+			}
+		})
+	}
+}
+
+func TestClassifyMixedPayloadAndFields(t *testing.T) {
+	yml := "rules:\n  - category: alert\n    contains: [\"PANIC\"]\n    fields:\n      - path: level\n        exact: error"
+	s := mustParse(t, yml)
+
+	// A text log matches on the payload, with no fields at all.
+	c, err := s.Classify(context.Background(), domain.Record{Kind: domain.KindText, Data: []byte("PANIC goroutine stack")})
+	if err != nil || c.Category != "alert" {
+		t.Fatalf("text log Classify() = %+v, %v, want alert", c, err)
+	}
+	// A structured event matches on the field, with a payload that does not.
+	c, err = s.Classify(context.Background(), rec(map[string]any{"level": "error"}))
+	if err != nil || c.Category != "alert" {
+		t.Fatalf("event Classify() = %+v, %v, want alert", c, err)
+	}
+	// Neither hits.
+	if _, err := s.Classify(context.Background(), rec(map[string]any{"level": "info"})); !errors.Is(err, stage.ErrUnclassified) {
+		t.Fatalf("no-match Classify() error = %v, want ErrUnclassified", err)
+	}
+}
+
 func TestValidation(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -81,6 +211,11 @@ func TestValidation(t *testing.T) {
 		{"empty contains", "rules:\n  - category: a\n    contains: [\"\"]", "empty contains"},
 		{"bad regex", "rules:\n  - category: a\n    regex: [\"(\"]", "rule 1 (a)"},
 		{"bad yaml", ":\nnot yaml at all\n  x", "parse yaml"},
+		{"field without path", "rules:\n  - category: a\n    fields:\n      - exact: x", "needs a path"},
+		{"field no condition", "rules:\n  - category: a\n    fields:\n      - path: p", "exactly one of"},
+		{"field two conditions", "rules:\n  - category: a\n    fields:\n      - path: p\n        exact: x\n        exists: true", "exactly one of"},
+		{"field empty contains", "rules:\n  - category: a\n    fields:\n      - path: p\n        contains: \"\"", "empty contains"},
+		{"field bad regex", "rules:\n  - category: a\n    fields:\n      - path: p\n        regex: \"(\"", "field \"p\""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
