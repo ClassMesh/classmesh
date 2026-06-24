@@ -24,8 +24,8 @@ type Deps struct {
 
 // Classifier decides a single record by walking the cascade.
 type Classifier struct {
-	stages        []stage.Stage
-	minConfidence float64
+	stages []stage.Stage
+	gate   stage.Gate
 }
 
 // New checks deps and returns a ready Classifier.
@@ -33,10 +33,11 @@ func New(d Deps) (*Classifier, error) {
 	if len(d.Stages) == 0 {
 		return nil, errors.New("classifier: at least one stage is required")
 	}
-	if d.MinConfidence < 0 || d.MinConfidence > 1 {
-		return nil, errors.New("classifier: min confidence must be within [0, 1]")
+	gate, err := stage.NewGate(d.MinConfidence)
+	if err != nil {
+		return nil, fmt.Errorf("classifier: %w", err)
 	}
-	return &Classifier{stages: d.Stages, minConfidence: d.MinConfidence}, nil
+	return &Classifier{stages: d.Stages, gate: gate}, nil
 }
 
 // Classify walks the cascade and returns the first decision at or above the
@@ -55,7 +56,7 @@ func (c *Classifier) Classify(ctx context.Context, r domain.Record) (domain.Clas
 		if err != nil {
 			return domain.Classification{}, fmt.Errorf("classifier: %w", &stage.Error{Stage: st.Name(), Err: err})
 		}
-		if cl.Confidence < c.minConfidence {
+		if !c.gate.Admits(cl.Confidence) {
 			continue
 		}
 		return cl, nil
