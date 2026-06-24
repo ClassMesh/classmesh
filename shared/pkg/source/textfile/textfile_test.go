@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ClassMesh/classmesh/shared/pkg/domain"
 	"github.com/ClassMesh/classmesh/shared/pkg/source"
 )
 
@@ -24,6 +25,9 @@ func TestNewYieldsLinesWithMetadata(t *testing.T) {
 		}
 		if string(r.Data) != payload {
 			t.Fatalf("Next() #%d data = %q, want %q", i+1, r.Data, payload)
+		}
+		if r.Kind != domain.KindText {
+			t.Fatalf("Next() #%d kind = %q, want %q", i+1, r.Kind, domain.KindText)
 		}
 		wantLine := []string{"1", "2", "3"}[i]
 		if r.Meta["line"] != wantLine || r.Meta["source"] != "test-stream" {
