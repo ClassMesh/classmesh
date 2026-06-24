@@ -63,6 +63,34 @@ func TestWriteEmitsOneJSONObjectPerLine(t *testing.T) {
 	}
 }
 
+func TestWriteOutputUnchangedByReasons(t *testing.T) {
+	var buf bytes.Buffer
+	s := New(&buf)
+	c := domain.Classification{
+		Category:   "noise",
+		Confidence: 1,
+		Stage:      "rules",
+		Reasons:    []domain.Reason{{Code: "r1", Detail: "matched contains"}},
+	}
+	if err := s.Write(context.Background(), domain.Record{ID: "x", Data: []byte("hi")}, c); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+
+	var got map[string]any
+	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
+		t.Fatalf("output not valid JSON: %v", err)
+	}
+	if _, ok := got["reasons"]; ok {
+		t.Fatalf("output has reasons key %v, want existing shape preserved", got)
+	}
+	if got["category"] != "noise" || got["stage"] != "rules" {
+		t.Fatalf("output = %v, want category=noise stage=rules", got)
+	}
+}
+
 func TestCloseFlushesAndIsIdempotent(t *testing.T) {
 	var buf bytes.Buffer
 	s := New(&buf)

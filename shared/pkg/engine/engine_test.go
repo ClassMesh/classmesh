@@ -145,6 +145,10 @@ func TestRunPropagatesStageError(t *testing.T) {
 	if !strings.Contains(err.Error(), "failing") {
 		t.Fatalf("Run() error = %v, want stage name in message", err)
 	}
+	var se *stage.Error
+	if !errors.As(err, &se) || se.Stage != "failing" {
+		t.Fatalf("Run() error = %v, want *stage.Error with Stage=failing", err)
+	}
 	if stats.Processed != 1 {
 		t.Fatalf("stats.Processed = %d, want 1", stats.Processed)
 	}
