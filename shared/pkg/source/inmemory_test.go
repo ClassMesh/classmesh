@@ -30,6 +30,27 @@ func TestInMemoryYieldsInOrderThenDrains(t *testing.T) {
 	}
 }
 
+func TestInMemoryPreservesKindAndFields(t *testing.T) {
+	src := NewInMemory([]domain.Record{{
+		ID:     "1",
+		Kind:   domain.KindEvent,
+		Data:   []byte(`{"level":"error"}`),
+		Fields: map[string]any{"level": "error"},
+	}})
+	t.Cleanup(func() { _ = src.Close() })
+
+	r, err := src.Next(context.Background())
+	if err != nil {
+		t.Fatalf("Next() error = %v, want nil", err)
+	}
+	if r.Kind != domain.KindEvent {
+		t.Fatalf("Next() Kind = %q, want %q", r.Kind, domain.KindEvent)
+	}
+	if r.Fields["level"] != "error" {
+		t.Fatalf("Next() Fields = %v, want level=error", r.Fields)
+	}
+}
+
 func TestInMemoryClosedSourceDrains(t *testing.T) {
 	src := NewInMemory([]domain.Record{{ID: "1"}})
 	if err := src.Close(); err != nil {
