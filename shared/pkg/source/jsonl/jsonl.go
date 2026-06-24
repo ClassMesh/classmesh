@@ -1,7 +1,9 @@
 // Package jsonl implements source.Source over JSON Lines: one JSON object per
 // line. Each line becomes a Record whose Data is the original bytes and whose
-// Fields is the decoded object, tagged domain.KindJSON. Blank lines are
-// skipped; a non-blank line that is not a JSON object is a clear error.
+// Fields is the decoded object, tagged domain.KindJSON. Numbers are decoded as
+// json.Number so large integer IDs keep their exact value instead of rounding
+// through float64. Blank lines are skipped; a non-blank line that is not a
+// single JSON object is a clear error.
 package jsonl
 
 import (
@@ -9,6 +11,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -73,12 +76,17 @@ func (s *Source) Next(ctx context.Context) (domain.Record, error) {
 		line := strconv.Itoa(s.line)
 		data := make([]byte, len(raw))
 		copy(data, raw)
+		dec := json.NewDecoder(bytes.NewReader(data))
+		dec.UseNumber()
 		var fields map[string]any
-		if err := json.Unmarshal(data, &fields); err != nil {
+		if err := dec.Decode(&fields); err != nil {
 			return domain.Record{}, fmt.Errorf("jsonl: %s:%s: %w", s.name, line, err)
 		}
 		if fields == nil {
 			return domain.Record{}, fmt.Errorf("jsonl: %s:%s: line is not a JSON object", s.name, line)
+		}
+		if err := dec.Decode(new(json.RawMessage)); !errors.Is(err, io.EOF) {
+			return domain.Record{}, fmt.Errorf("jsonl: %s:%s: unexpected data after JSON object", s.name, line)
 		}
 		return domain.Record{
 			ID:     s.name + ":" + line,
