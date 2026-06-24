@@ -51,12 +51,12 @@ type Stats struct {
 
 // Engine drives records through the cascade.
 type Engine struct {
-	source        source.Source
-	stages        []stage.Stage
-	sink          sink.Sink
-	review        sink.Sink
-	logger        *slog.Logger
-	minConfidence float64
+	source source.Source
+	stages []stage.Stage
+	sink   sink.Sink
+	review sink.Sink
+	logger *slog.Logger
+	gate   stage.Gate
 }
 
 // New validates deps and returns a ready Engine.
@@ -70,19 +70,20 @@ func New(d Deps) (*Engine, error) {
 	if d.Sink == nil {
 		return nil, errors.New("engine: sink is required")
 	}
-	if d.MinConfidence < 0 || d.MinConfidence > 1 {
-		return nil, errors.New("engine: min confidence must be within [0, 1]")
+	gate, err := stage.NewGate(d.MinConfidence)
+	if err != nil {
+		return nil, fmt.Errorf("engine: %w", err)
 	}
 	if d.Logger == nil {
 		d.Logger = slog.Default()
 	}
 	return &Engine{
-		source:        d.Source,
-		stages:        d.Stages,
-		sink:          d.Sink,
-		review:        d.Review,
-		logger:        d.Logger,
-		minConfidence: d.MinConfidence,
+		source: d.Source,
+		stages: d.Stages,
+		sink:   d.Sink,
+		review: d.Review,
+		logger: d.Logger,
+		gate:   gate,
 	}, nil
 }
 
@@ -136,10 +137,10 @@ func (e *Engine) classify(ctx context.Context, r domain.Record) (domain.Classifi
 		if err != nil {
 			return domain.Classification{}, "", fmt.Errorf("engine: %w", &stage.Error{Stage: st.Name(), Err: err})
 		}
-		if c.Confidence < e.minConfidence {
+		if !e.gate.Admits(c.Confidence) {
 			e.logger.Debug("classification below confidence gate, escalating",
 				"record", r.ID, "stage", st.Name(), "category", c.Category,
-				"confidence", c.Confidence, "gate", e.minConfidence)
+				"confidence", c.Confidence, "gate", e.gate)
 			continue
 		}
 		return c, st.Name(), nil
