@@ -18,7 +18,7 @@ source → [ stage 1: rules ] → [ stage 2: model ] → [ stage N ] → sink
 
 Everything is an interface: input sources, classification stages, and output sinks are pluggable modules. Today: text files and stdin. Tomorrow: whatever implements `Source`.
 
-For working examples of each contract, see [`textfile`](shared/pkg/source/textfile) (a `Source`), [`rules`](shared/pkg/stage/rules) (a `Stage`), and [`jsonl`](shared/pkg/sink/jsonl) (a `Sink`).
+For working examples of each contract, see [`textfile`](shared/pkg/source/textfile) (a `Source`), [`rules`](shared/pkg/stage/rules) (a `Stage`), and [`jsonl`](shared/pkg/sink/jsonl) (a `Sink`). [`docs/architecture.md`](docs/architecture.md) explains how the pieces fit and why the core stays payload-agnostic.
 
 ## Layout
 
