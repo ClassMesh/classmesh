@@ -72,6 +72,7 @@ func (s *Source) Next(ctx context.Context) (domain.Record, error) {
 	copy(data, s.scanner.Bytes())
 	return domain.Record{
 		ID:   s.name + ":" + line,
+		Kind: domain.KindText,
 		Data: data,
 		Meta: map[string]string{"source": s.name, "line": line},
 	}, nil

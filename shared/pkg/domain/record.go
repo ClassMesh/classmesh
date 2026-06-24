@@ -2,13 +2,31 @@
 // pipeline. It has no dependencies and every other package depends on it.
 package domain
 
+// Kind identifies the shape of a Record's payload. The zero value is
+// KindUnknown.
+type Kind string
+
+const (
+	KindUnknown Kind = ""
+	KindText    Kind = "text"
+	KindLog     Kind = "log"
+	KindEvent   Kind = "event"
+	KindRecord  Kind = "record"
+	KindJSON    Kind = "json"
+)
+
 // Record is a single unit of data moving through the pipeline. Sources
 // produce Records, stages classify them, sinks consume them.
 type Record struct {
 	// ID uniquely identifies the record within a run. Sources assign it.
 	ID string
+	// Kind identifies the payload shape. Zero value is KindUnknown.
+	Kind Kind
 	// Data is the raw payload (a log line, a JSON document, ...).
 	Data []byte
+	// Fields holds structured attributes decoded from the payload, when a
+	// source has them. Nil for unstructured payloads.
+	Fields map[string]any
 	// Meta carries source-specific context (file name, line number, ...).
 	Meta map[string]string
 }
