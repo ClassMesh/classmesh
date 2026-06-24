@@ -1,7 +1,8 @@
 // Package rules implements stage.Stage with deterministic, YAML-defined
 // matching: ordered rules of payload and field matchers mapped to categories.
 // First matching rule wins; no match means ErrUnclassified so the cascade
-// escalates. As a deterministic stage it always emits confidence 1.
+// escalates. As a deterministic stage it always emits confidence 1, with a
+// reason naming the rule and what it matches on.
 package rules
 
 import (
@@ -26,15 +27,34 @@ import (
 // Name identifies this stage in classifications, stats, and logs.
 const Name = "rules"
 
-// Rule maps matchers to a category. A rule matches a record when ANY of its
-// matchers hit: a Contains substring or Regex pattern against the raw payload,
-// or a Fields matcher against the decoded fields. Substring matching is
-// case-sensitive; use (?i) in a regex for case-insensitive matching.
+// Rule maps matchers to a category. It carries up to three matcher blocks, all
+// of which must be satisfied for the rule to match (an absent block is
+// ignored):
+//
+//   - the top-level Contains/Regex/Fields matchers, satisfied when ANY of them
+//     hits (the shorthand for a simple rule);
+//   - All, satisfied when every listed matcher hits;
+//   - Any, satisfied when at least one listed matcher hits.
+//
+// Substring matching is case-sensitive; use (?i) in a regex for
+// case-insensitive matching. ID and Category label the rule in errors and in
+// the reason attached to a match.
 type Rule struct {
+	ID       string         `yaml:"id"`
 	Category string         `yaml:"category"`
 	Contains []string       `yaml:"contains"`
 	Regex    []string       `yaml:"regex"`
 	Fields   []FieldMatcher `yaml:"fields"`
+	Any      []Matcher      `yaml:"any"`
+	All      []Matcher      `yaml:"all"`
+}
+
+// Matcher is one condition inside an Any or All group: exactly one of a payload
+// Contains substring, a payload Regex, or a Field test.
+type Matcher struct {
+	Contains *string       `yaml:"contains"`
+	Regex    *string       `yaml:"regex"`
+	Field    *FieldMatcher `yaml:"field"`
 }
 
 // FieldMatcher tests one value in a record's decoded Fields, addressed by a
@@ -59,11 +79,21 @@ type Config struct {
 
 type fieldPredicate func(fields map[string]any) bool
 
+// check is a compiled matcher: a predicate over a record plus a short
+// description used as match evidence in a reason.
+type check struct {
+	desc  string
+	match func(r domain.Record) bool
+}
+
 type compiledRule struct {
 	category string
-	contains [][]byte
-	regexes  []*regexp.Regexp
-	fields   []fieldPredicate
+	base     []check // top-level matchers, satisfied when any hits
+	any      []check // satisfied when any hits
+	all      []check // satisfied when every one hits
+	// reasons is a precomputed, read-only single reason naming the rule and
+	// what it matches on, so attaching it on a match costs no allocation.
+	reasons []domain.Reason
 }
 
 // Stage is a deterministic rule-matching stage.
@@ -74,8 +104,7 @@ type Stage struct {
 var _ stage.Stage = (*Stage)(nil)
 
 // New compiles rules in order. Every rule needs a category and at least one
-// matcher; every regex must compile and every field matcher must be well
-// formed.
+// matcher; every regex must compile and every matcher must be well formed.
 func New(rules []Rule) (*Stage, error) {
 	if len(rules) == 0 {
 		return nil, errors.New("rules: at least one rule is required")
@@ -85,30 +114,53 @@ func New(rules []Rule) (*Stage, error) {
 		if r.Category == "" {
 			return nil, fmt.Errorf("rules: rule %d: category is required", i+1)
 		}
-		if len(r.Contains) == 0 && len(r.Regex) == 0 && len(r.Fields) == 0 {
-			return nil, fmt.Errorf("rules: rule %d (%s): at least one matcher (contains/regex/fields) is required", i+1, r.Category)
+		label := ruleLabel(i, r.ID, r.Category)
+		if len(r.Contains)+len(r.Regex)+len(r.Fields)+len(r.Any)+len(r.All) == 0 {
+			return nil, fmt.Errorf("rules: %s: at least one matcher (contains/regex/fields/any/all) is required", label)
 		}
 		cr := compiledRule{category: r.Category}
+
 		for _, sub := range r.Contains {
-			if sub == "" {
-				return nil, fmt.Errorf("rules: rule %d (%s): empty contains matcher", i+1, r.Category)
-			}
-			cr.contains = append(cr.contains, []byte(sub))
-		}
-		for _, pattern := range r.Regex {
-			re, err := regexp.Compile(pattern)
-			if err != nil {
-				return nil, fmt.Errorf("rules: rule %d (%s): %w", i+1, r.Category, err)
-			}
-			cr.regexes = append(cr.regexes, re)
-		}
-		for _, fm := range r.Fields {
-			pred, err := compileFieldMatcher(fm, i+1, r.Category)
+			c, err := containsCheck(sub, label)
 			if err != nil {
 				return nil, err
 			}
-			cr.fields = append(cr.fields, pred)
+			cr.base = append(cr.base, c)
 		}
+		for _, pattern := range r.Regex {
+			c, err := regexCheck(pattern, label)
+			if err != nil {
+				return nil, err
+			}
+			cr.base = append(cr.base, c)
+		}
+		for _, fm := range r.Fields {
+			c, err := fieldCheck(fm, label)
+			if err != nil {
+				return nil, err
+			}
+			cr.base = append(cr.base, c)
+		}
+		for _, m := range r.Any {
+			c, err := groupCheck(m, label)
+			if err != nil {
+				return nil, err
+			}
+			cr.any = append(cr.any, c)
+		}
+		for _, m := range r.All {
+			c, err := groupCheck(m, label)
+			if err != nil {
+				return nil, err
+			}
+			cr.all = append(cr.all, c)
+		}
+
+		code := r.ID
+		if code == "" {
+			code = r.Category
+		}
+		cr.reasons = []domain.Reason{{Code: code, Detail: cr.describe()}}
 		compiled = append(compiled, cr)
 	}
 	return &Stage{rules: compiled}, nil
@@ -135,43 +187,126 @@ func Load(path string) (*Stage, error) {
 // Name implements stage.Stage.
 func (s *Stage) Name() string { return Name }
 
-// Classify implements stage.Stage: first matching rule wins.
+// Classify implements stage.Stage: first matching rule wins, and the result
+// carries the rule's precomputed reason (its id/category and what it matches on).
 func (s *Stage) Classify(ctx context.Context, r domain.Record) (domain.Classification, error) {
 	if err := ctx.Err(); err != nil {
 		return domain.Classification{}, err
 	}
 	for _, rule := range s.rules {
-		if rule.matches(r) {
-			return domain.Classification{Category: rule.category, Confidence: 1, Stage: Name}, nil
+		if rule.match(r) {
+			return domain.Classification{
+				Category:   rule.category,
+				Confidence: 1,
+				Stage:      Name,
+				Reasons:    rule.reasons,
+			}, nil
 		}
 	}
 	return domain.Classification{}, stage.ErrUnclassified
 }
 
-func (cr compiledRule) matches(r domain.Record) bool {
-	for _, sub := range cr.contains {
-		if bytes.Contains(r.Data, sub) {
-			return true
+func (cr compiledRule) match(r domain.Record) bool {
+	if len(cr.base) > 0 && !anyHit(cr.base, r) {
+		return false
+	}
+	if len(cr.any) > 0 && !anyHit(cr.any, r) {
+		return false
+	}
+	for _, c := range cr.all {
+		if !c.match(r) {
+			return false
 		}
 	}
-	for _, re := range cr.regexes {
-		if re.Match(r.Data) {
+	return true
+}
+
+func anyHit(checks []check, r domain.Record) bool {
+	for _, c := range checks {
+		if c.match(r) {
 			return true
-		}
-	}
-	if r.Fields != nil {
-		for _, pred := range cr.fields {
-			if pred(r.Fields) {
-				return true
-			}
 		}
 	}
 	return false
 }
 
-func compileFieldMatcher(fm FieldMatcher, ruleNum int, category string) (fieldPredicate, error) {
+// describe renders a static, human-readable summary of what the rule matches
+// on, used as the Detail of its precomputed reason.
+func (cr compiledRule) describe() string {
+	var parts []string
+	if len(cr.base) > 0 {
+		parts = append(parts, joinDescs(cr.base, " or "))
+	}
+	if len(cr.any) > 0 {
+		parts = append(parts, "any("+joinDescs(cr.any, " or ")+")")
+	}
+	if len(cr.all) > 0 {
+		parts = append(parts, "all("+joinDescs(cr.all, " and ")+")")
+	}
+	return strings.Join(parts, " and ")
+}
+
+func joinDescs(checks []check, sep string) string {
+	descs := make([]string, len(checks))
+	for i, c := range checks {
+		descs[i] = c.desc
+	}
+	return strings.Join(descs, sep)
+}
+
+func ruleLabel(i int, id, category string) string {
+	name := category
+	if id != "" {
+		name = id
+	}
+	return fmt.Sprintf("rule %d (%s)", i+1, name)
+}
+
+func containsCheck(sub, label string) (check, error) {
+	if sub == "" {
+		return check{}, fmt.Errorf("rules: %s: empty contains matcher", label)
+	}
+	b := []byte(sub)
+	return check{
+		desc:  fmt.Sprintf("contains %q", sub),
+		match: func(r domain.Record) bool { return bytes.Contains(r.Data, b) },
+	}, nil
+}
+
+func regexCheck(pattern, label string) (check, error) {
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		return check{}, fmt.Errorf("rules: %s: %w", label, err)
+	}
+	return check{
+		desc:  fmt.Sprintf("regex %q", pattern),
+		match: func(r domain.Record) bool { return re.Match(r.Data) },
+	}, nil
+}
+
+func groupCheck(m Matcher, label string) (check, error) {
+	set := 0
+	for _, on := range []bool{m.Contains != nil, m.Regex != nil, m.Field != nil} {
+		if on {
+			set++
+		}
+	}
+	if set != 1 {
+		return check{}, fmt.Errorf("rules: %s: each any/all matcher needs exactly one of contains/regex/field", label)
+	}
+	switch {
+	case m.Contains != nil:
+		return containsCheck(*m.Contains, label)
+	case m.Regex != nil:
+		return regexCheck(*m.Regex, label)
+	default:
+		return fieldCheck(*m.Field, label)
+	}
+}
+
+func fieldCheck(fm FieldMatcher, label string) (check, error) {
 	if fm.Path == "" {
-		return nil, fmt.Errorf("rules: rule %d (%s): field matcher needs a path", ruleNum, category)
+		return check{}, fmt.Errorf("rules: %s: field matcher needs a path", label)
 	}
 	set := 0
 	for _, on := range []bool{fm.Exact != nil, fm.Contains != nil, fm.Regex != nil, fm.Exists != nil} {
@@ -180,42 +315,62 @@ func compileFieldMatcher(fm FieldMatcher, ruleNum int, category string) (fieldPr
 		}
 	}
 	if set != 1 {
-		return nil, fmt.Errorf("rules: rule %d (%s): field %q needs exactly one of exact/contains/regex/exists", ruleNum, category, fm.Path)
+		return check{}, fmt.Errorf("rules: %s: field %q needs exactly one of exact/contains/regex/exists", label, fm.Path)
 	}
 
 	path := fm.Path
+	var desc string
+	var pred fieldPredicate
 	switch {
 	case fm.Exact != nil:
 		want := *fm.Exact
-		return func(fields map[string]any) bool {
+		desc = fmt.Sprintf("field %s == %q", path, want)
+		pred = func(fields map[string]any) bool {
 			s, ok := lookupString(fields, path)
 			return ok && s == want
-		}, nil
+		}
 	case fm.Contains != nil:
 		want := *fm.Contains
 		if want == "" {
-			return nil, fmt.Errorf("rules: rule %d (%s): field %q: empty contains matcher", ruleNum, category, fm.Path)
+			return check{}, fmt.Errorf("rules: %s: field %q: empty contains matcher", label, fm.Path)
 		}
-		return func(fields map[string]any) bool {
+		desc = fmt.Sprintf("field %s contains %q", path, want)
+		pred = func(fields map[string]any) bool {
 			s, ok := lookupString(fields, path)
 			return ok && strings.Contains(s, want)
-		}, nil
+		}
 	case fm.Regex != nil:
 		re, err := regexp.Compile(*fm.Regex)
 		if err != nil {
-			return nil, fmt.Errorf("rules: rule %d (%s): field %q: %w", ruleNum, category, fm.Path, err)
+			return check{}, fmt.Errorf("rules: %s: field %q: %w", label, fm.Path, err)
 		}
-		return func(fields map[string]any) bool {
+		desc = fmt.Sprintf("field %s matches %q", path, re.String())
+		pred = func(fields map[string]any) bool {
 			s, ok := lookupString(fields, path)
 			return ok && re.MatchString(s)
-		}, nil
+		}
 	default:
 		want := *fm.Exists
-		return func(fields map[string]any) bool {
+		if want {
+			desc = fmt.Sprintf("field %s exists", path)
+		} else {
+			desc = fmt.Sprintf("field %s absent", path)
+		}
+		pred = func(fields map[string]any) bool {
 			_, ok := fieldpath.Get(fields, path)
 			return ok == want
-		}, nil
+		}
 	}
+
+	return check{
+		desc: desc,
+		match: func(r domain.Record) bool {
+			if r.Fields == nil {
+				return false
+			}
+			return pred(r.Fields)
+		},
+	}, nil
 }
 
 // lookupString renders the scalar value at path (string, number, bool) as

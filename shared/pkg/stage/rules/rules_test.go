@@ -199,6 +199,78 @@ func TestClassifyMixedPayloadAndFields(t *testing.T) {
 	}
 }
 
+func TestAnyGroup(t *testing.T) {
+	yml := "rules:\n  - category: hit\n    any:\n      - contains: \"alpha\"\n      - field: {path: level, exact: error}"
+	s := mustParse(t, yml)
+
+	c, err := s.Classify(context.Background(), domain.Record{Data: []byte("see alpha here")})
+	if err != nil || c.Category != "hit" {
+		t.Fatalf("payload branch: Classify() = %+v, %v, want hit", c, err)
+	}
+	c, err = s.Classify(context.Background(), rec(map[string]any{"level": "error"}))
+	if err != nil || c.Category != "hit" {
+		t.Fatalf("field branch: Classify() = %+v, %v, want hit", c, err)
+	}
+	if _, err := s.Classify(context.Background(), domain.Record{Data: []byte("nothing here")}); !errors.Is(err, stage.ErrUnclassified) {
+		t.Fatalf("no branch: Classify() error = %v, want ErrUnclassified", err)
+	}
+}
+
+func TestAllGroup(t *testing.T) {
+	yml := "rules:\n  - category: se\n    all:\n      - field: {path: level, exact: error}\n      - field: {path: http.status, regex: \"^5\"}"
+	s := mustParse(t, yml)
+
+	both := rec(map[string]any{"level": "error", "http": map[string]any{"status": float64(503)}})
+	c, err := s.Classify(context.Background(), both)
+	if err != nil || c.Category != "se" {
+		t.Fatalf("both: Classify() = %+v, %v, want se", c, err)
+	}
+	onlyOne := rec(map[string]any{"level": "error"})
+	if _, err := s.Classify(context.Background(), onlyOne); !errors.Is(err, stage.ErrUnclassified) {
+		t.Fatalf("one: Classify() error = %v, want ErrUnclassified", err)
+	}
+}
+
+func TestBaseAndGroupsCombine(t *testing.T) {
+	// Top-level and group blocks are ANDed: both must hold.
+	yml := "rules:\n  - category: x\n    contains: [\"PANIC\"]\n    all:\n      - field: {path: level, exact: error}"
+	s := mustParse(t, yml)
+
+	c, err := s.Classify(context.Background(), domain.Record{Data: []byte("PANIC now"), Fields: map[string]any{"level": "error"}})
+	if err != nil || c.Category != "x" {
+		t.Fatalf("both blocks: Classify() = %+v, %v, want x", c, err)
+	}
+	if _, err := s.Classify(context.Background(), domain.Record{Data: []byte("PANIC now")}); !errors.Is(err, stage.ErrUnclassified) {
+		t.Fatalf("payload only: Classify() error = %v, want ErrUnclassified", err)
+	}
+	if _, err := s.Classify(context.Background(), rec(map[string]any{"level": "error"})); !errors.Is(err, stage.ErrUnclassified) {
+		t.Fatalf("field only: Classify() error = %v, want ErrUnclassified", err)
+	}
+}
+
+func TestMatchReasons(t *testing.T) {
+	withID := mustParse(t, "rules:\n  - id: noise-health\n    category: noise\n    contains: [\"healthz\"]")
+	c, err := withID.Classify(context.Background(), domain.Record{Data: []byte("GET /healthz 200")})
+	if err != nil {
+		t.Fatalf("Classify() error = %v", err)
+	}
+	if len(c.Reasons) != 1 || c.Reasons[0].Code != "noise-health" {
+		t.Fatalf("Reasons = %+v, want one with Code noise-health", c.Reasons)
+	}
+	if !strings.Contains(c.Reasons[0].Detail, "healthz") {
+		t.Fatalf("Reason Detail = %q, want it to mention the matched substring", c.Reasons[0].Detail)
+	}
+
+	noID := mustParse(t, "rules:\n  - category: noise\n    contains: [\"healthz\"]")
+	c, err = noID.Classify(context.Background(), domain.Record{Data: []byte("healthz")})
+	if err != nil {
+		t.Fatalf("Classify() error = %v", err)
+	}
+	if len(c.Reasons) != 1 || c.Reasons[0].Code != "noise" {
+		t.Fatalf("Reasons = %+v, want Code to fall back to the category", c.Reasons)
+	}
+}
+
 func TestValidation(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -216,6 +288,9 @@ func TestValidation(t *testing.T) {
 		{"field two conditions", "rules:\n  - category: a\n    fields:\n      - path: p\n        exact: x\n        exists: true", "exactly one of"},
 		{"field empty contains", "rules:\n  - category: a\n    fields:\n      - path: p\n        contains: \"\"", "empty contains"},
 		{"field bad regex", "rules:\n  - category: a\n    fields:\n      - path: p\n        regex: \"(\"", "field \"p\""},
+		{"any matcher empty", "rules:\n  - category: a\n    any:\n      - {}", "exactly one of contains/regex/field"},
+		{"all matcher two conditions", "rules:\n  - category: a\n    all:\n      - contains: x\n        regex: y", "exactly one of contains/regex/field"},
+		{"group bad regex names rule id", "rules:\n  - id: r9\n    category: a\n    any:\n      - regex: \"(\"", "rule 1 (r9)"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
