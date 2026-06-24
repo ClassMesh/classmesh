@@ -53,7 +53,7 @@ func (c *Classifier) Classify(ctx context.Context, r domain.Record) (domain.Clas
 			continue
 		}
 		if err != nil {
-			return domain.Classification{}, fmt.Errorf("classifier: stage %s: %w", st.Name(), err)
+			return domain.Classification{}, fmt.Errorf("classifier: %w", &stage.Error{Stage: st.Name(), Err: err})
 		}
 		if cl.Confidence < c.minConfidence {
 			continue
