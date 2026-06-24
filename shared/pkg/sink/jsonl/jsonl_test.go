@@ -63,31 +63,48 @@ func TestWriteEmitsOneJSONObjectPerLine(t *testing.T) {
 	}
 }
 
-func TestWriteOutputUnchangedByReasons(t *testing.T) {
-	var buf bytes.Buffer
-	s := New(&buf)
-	c := domain.Classification{
-		Category:   "noise",
-		Confidence: 1,
-		Stage:      "rules",
-		Reasons:    []domain.Reason{{Code: "r1", Detail: "matched contains"}},
+func TestWriteGolden(t *testing.T) {
+	cases := []struct {
+		name string
+		r    domain.Record
+		c    domain.Classification
+		want string
+	}{
+		{
+			"classified event with kind, fields and reasons",
+			domain.Record{ID: "e:1", Kind: domain.KindJSON, Data: []byte(`{"a":1}`), Fields: map[string]any{"a": float64(1)}, Meta: map[string]string{"line": "1"}},
+			domain.Classification{Category: "x", Confidence: 1, Stage: "rules", Reasons: []domain.Reason{{Code: "r1", Detail: "d"}}},
+			`{"id":"e:1","kind":"json","data":"{\"a\":1}","fields":{"a":1},"meta":{"line":"1"},"category":"x","confidence":1,"stage":"rules","reasons":[{"code":"r1","detail":"d"}]}` + "\n",
+		},
+		{
+			// KindText is exactly what the textfile source produces, so this
+			// is the default log path: kind must not appear on the wire.
+			"plain log record (KindText) keeps the prior shape",
+			domain.Record{ID: "app.log:1", Kind: domain.KindText, Data: []byte("GET /healthz 200"), Meta: map[string]string{"line": "1"}},
+			domain.Classification{Category: "noise", Confidence: 1, Stage: "rules"},
+			`{"id":"app.log:1","data":"GET /healthz 200","meta":{"line":"1"},"category":"noise","confidence":1,"stage":"rules"}` + "\n",
+		},
+		{
+			"review entry with zero classification",
+			domain.Record{ID: "app.log:2", Data: []byte("weird")},
+			domain.Classification{},
+			`{"id":"app.log:2","data":"weird","category":"","confidence":0}` + "\n",
+		},
 	}
-	if err := s.Write(context.Background(), domain.Record{ID: "x", Data: []byte("hi")}, c); err != nil {
-		t.Fatalf("Write() error = %v", err)
-	}
-	if err := s.Close(); err != nil {
-		t.Fatalf("Close() error = %v", err)
-	}
-
-	var got map[string]any
-	if err := json.Unmarshal(buf.Bytes(), &got); err != nil {
-		t.Fatalf("output not valid JSON: %v", err)
-	}
-	if _, ok := got["reasons"]; ok {
-		t.Fatalf("output has reasons key %v, want existing shape preserved", got)
-	}
-	if got["category"] != "noise" || got["stage"] != "rules" {
-		t.Fatalf("output = %v, want category=noise stage=rules", got)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			s := New(&buf)
+			if err := s.Write(context.Background(), tc.r, tc.c); err != nil {
+				t.Fatalf("Write() error = %v", err)
+			}
+			if err := s.Close(); err != nil {
+				t.Fatalf("Close() error = %v", err)
+			}
+			if got := buf.String(); got != tc.want {
+				t.Fatalf("output mismatch\n got: %s want: %s", got, tc.want)
+			}
+		})
 	}
 }
 
