@@ -98,6 +98,10 @@ func TestClassifyPropagatesStageError(t *testing.T) {
 	if !strings.Contains(err.Error(), "failing") {
 		t.Fatalf("Classify() error = %v, want stage name in message", err)
 	}
+	var se *stage.Error
+	if !errors.As(err, &se) || se.Stage != "failing" {
+		t.Fatalf("Classify() error = %v, want *stage.Error with Stage=failing", err)
+	}
 }
 
 func TestClassifyHonorsContextCancellation(t *testing.T) {

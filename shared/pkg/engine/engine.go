@@ -134,7 +134,7 @@ func (e *Engine) classify(ctx context.Context, r domain.Record) (domain.Classifi
 			continue
 		}
 		if err != nil {
-			return domain.Classification{}, "", fmt.Errorf("engine: stage %s: %w", st.Name(), err)
+			return domain.Classification{}, "", fmt.Errorf("engine: %w", &stage.Error{Stage: st.Name(), Err: err})
 		}
 		if c.Confidence < e.minConfidence {
 			e.logger.Debug("classification below confidence gate, escalating",
