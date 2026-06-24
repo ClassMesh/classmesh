@@ -35,9 +35,9 @@ type Record struct {
 // or more.
 type Reason struct {
 	// Code is a short tag for the evidence, like a rule ID.
-	Code string
+	Code string `json:"code"`
 	// Detail is a readable description.
-	Detail string
+	Detail string `json:"detail,omitempty"`
 }
 
 // Classification is the outcome of running a Record through a stage.
