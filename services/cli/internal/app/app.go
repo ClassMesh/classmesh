@@ -12,6 +12,8 @@ import (
 	"github.com/ClassMesh/classmesh/shared/pkg/engine"
 	"github.com/ClassMesh/classmesh/shared/pkg/sink"
 	"github.com/ClassMesh/classmesh/shared/pkg/sink/jsonl"
+	"github.com/ClassMesh/classmesh/shared/pkg/source"
+	jsonlsource "github.com/ClassMesh/classmesh/shared/pkg/source/jsonl"
 	"github.com/ClassMesh/classmesh/shared/pkg/source/textfile"
 	"github.com/ClassMesh/classmesh/shared/pkg/stage"
 	"github.com/ClassMesh/classmesh/shared/pkg/stage/rules"
@@ -49,20 +51,22 @@ func usage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, `classmesh — classification cascade pipeline
 
 Usage:
-  classmesh run --rules rules.yml [--review review.jsonl] [--min-confidence 0.7] [file ...]
+  classmesh run --rules rules.yml [--input text|jsonl] [--review review.jsonl] [--min-confidence 0.7] [file ...]
   classmesh version
 
-run reads lines from the given files (or stdin when none), classifies each
-line through the rule cascade, and writes one JSON object per line to
-stdout. Records no stage can classify go to the --review file, or are
-counted and dropped when --review is not set. A summary is printed to
-stderr.`)
+run reads records from the given files (or stdin when none), classifies each
+through the rule cascade, and writes one JSON object per line to stdout.
+--input text (the default) treats each line as a record; --input jsonl reads
+one JSON object per line into the record's fields. Records no stage can
+classify go to the --review file, or are counted and dropped when --review is
+not set. A summary is printed to stderr.`)
 }
 
 func runPipeline(ctx context.Context, args []string, s Streams) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(s.Err)
 	rulesPath := fs.String("rules", "", "path to the YAML rules file (required)")
+	input := fs.String("input", "text", "input format: text (one record per line) or jsonl (one JSON object per line)")
 	reviewPath := fs.String("review", "", "write unclassified records to this JSONL file")
 	minConfidence := fs.Float64("min-confidence", 0, "classifications below this confidence escalate to the next stage (0 disables)")
 	if err := fs.Parse(args); err != nil {
@@ -71,6 +75,10 @@ func runPipeline(ctx context.Context, args []string, s Streams) error {
 	if *rulesPath == "" {
 		usage(s.Err)
 		return fmt.Errorf("run: --rules is required")
+	}
+	if *input != "text" && *input != "jsonl" {
+		usage(s.Err)
+		return fmt.Errorf("run: --input must be text or jsonl, got %q", *input)
 	}
 
 	ruleStage, err := rules.Load(*rulesPath)
@@ -98,14 +106,14 @@ func runPipeline(ctx context.Context, args []string, s Streams) error {
 	total := engine.Stats{ByStage: make(map[string]int)}
 	inputs := fs.Args()
 	if len(inputs) == 0 {
-		stats, err := runOne(ctx, textfile.New(s.In, "stdin"), ruleStage, out, review, logger, *minConfidence)
+		stats, err := runOne(ctx, newSource(*input, s.In, "stdin"), ruleStage, out, review, logger, *minConfidence)
 		merge(&total, stats)
 		if err != nil {
 			return err
 		}
 	}
 	for _, path := range inputs {
-		src, err := textfile.Open(path)
+		src, err := openSource(*input, path)
 		if err != nil {
 			return err
 		}
@@ -121,7 +129,31 @@ func runPipeline(ctx context.Context, args []string, s Streams) error {
 	return nil
 }
 
-func runOne(ctx context.Context, src *textfile.Source, st stage.Stage, out, review sink.Sink, logger *slog.Logger, minConfidence float64) (engine.Stats, error) {
+// newSource builds a source over r for the chosen input format.
+func newSource(format string, r io.Reader, name string) source.Source {
+	if format == "jsonl" {
+		return jsonlsource.New(r, name)
+	}
+	return textfile.New(r, name)
+}
+
+// openSource opens the file at path as a source for the chosen input format.
+func openSource(format, path string) (source.Source, error) {
+	if format == "jsonl" {
+		src, err := jsonlsource.Open(path)
+		if err != nil {
+			return nil, err
+		}
+		return src, nil
+	}
+	src, err := textfile.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	return src, nil
+}
+
+func runOne(ctx context.Context, src source.Source, st stage.Stage, out, review sink.Sink, logger *slog.Logger, minConfidence float64) (engine.Stats, error) {
 	defer func() { _ = src.Close() }()
 	e, err := engine.New(engine.Deps{
 		Source:        src,
