@@ -106,6 +106,31 @@ func TestRunPipelineFromFiles(t *testing.T) {
 	}
 }
 
+func TestRunEmitsReasonsInOutput(t *testing.T) {
+	dir := t.TempDir()
+	rulesPath := writeFile(t, dir, "rules.yml", "rules:\n  - id: health\n    category: noise\n    contains: [\"healthz\"]\n")
+
+	var out, errOut bytes.Buffer
+	err := Run(context.Background(),
+		[]string{"run", "--rules", rulesPath},
+		Streams{In: strings.NewReader("GET /healthz 200\n"), Out: &out, Err: &errOut})
+	if err != nil {
+		t.Fatalf("Run() error = %v, stderr=%s", err, errOut.String())
+	}
+
+	entries := decodeLines(t, out.String())
+	if len(entries) != 1 {
+		t.Fatalf("entries = %d, want 1; out=%s", len(entries), out.String())
+	}
+	reasons, ok := entries[0]["reasons"].([]any)
+	if !ok || len(reasons) != 1 {
+		t.Fatalf("reasons = %v, want one reason in JSONL output", entries[0]["reasons"])
+	}
+	if first, _ := reasons[0].(map[string]any); first["code"] != "health" {
+		t.Fatalf("reason = %v, want code health", reasons[0])
+	}
+}
+
 func TestRunRequiresRulesFlag(t *testing.T) {
 	var out, errOut bytes.Buffer
 	err := Run(context.Background(), []string{"run"},
