@@ -131,6 +131,43 @@ func TestRunEmitsReasonsInOutput(t *testing.T) {
 	}
 }
 
+func TestRunJSONLInput(t *testing.T) {
+	dir := t.TempDir()
+	rulesPath := writeFile(t, dir, "rules.yml", "rules:\n  - id: error-level\n    category: alert\n    fields:\n      - path: level\n        exact: error\n")
+
+	in := strings.NewReader(`{"level":"error","msg":"boom"}` + "\n" + `{"level":"info","msg":"ok"}` + "\n")
+	var out, errOut bytes.Buffer
+	err := Run(context.Background(),
+		[]string{"run", "--rules", rulesPath, "--input", "jsonl"},
+		Streams{In: in, Out: &out, Err: &errOut})
+	if err != nil {
+		t.Fatalf("Run() error = %v, stderr=%s", err, errOut.String())
+	}
+
+	entries := decodeLines(t, out.String())
+	if len(entries) != 1 {
+		t.Fatalf("stdout entries = %d, want 1 (the error line); out=%s", len(entries), out.String())
+	}
+	if entries[0]["category"] != "alert" || entries[0]["kind"] != "json" {
+		t.Fatalf("entry = %v, want category=alert kind=json", entries[0])
+	}
+	if !strings.Contains(errOut.String(), "processed=2 classified=1 review=1") {
+		t.Fatalf("stderr = %q, want processed=2 classified=1 review=1", errOut.String())
+	}
+}
+
+func TestRunRejectsUnknownInputFormat(t *testing.T) {
+	dir := t.TempDir()
+	rulesPath := writeFile(t, dir, "rules.yml", testRules)
+	var out, errOut bytes.Buffer
+	err := Run(context.Background(),
+		[]string{"run", "--rules", rulesPath, "--input", "xml"},
+		Streams{In: strings.NewReader(""), Out: &out, Err: &errOut})
+	if err == nil || !strings.Contains(err.Error(), "--input must be text or jsonl") {
+		t.Fatalf("Run() error = %v, want input validation error", err)
+	}
+}
+
 func TestRunRequiresRulesFlag(t *testing.T) {
 	var out, errOut bytes.Buffer
 	err := Run(context.Background(), []string{"run"},
