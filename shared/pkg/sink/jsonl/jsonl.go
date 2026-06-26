@@ -39,8 +39,12 @@ type Sink struct {
 var _ sink.Sink = (*Sink)(nil)
 
 // New returns a Sink writing JSON Lines to w.
+// writeBufferSize is large enough that high-volume JSONL output flushes to the
+// underlying writer in few syscalls rather than bufio's 4KiB default.
+const writeBufferSize = 64 << 10
+
 func New(w io.Writer) *Sink {
-	bw := bufio.NewWriter(w)
+	bw := bufio.NewWriterSize(w, writeBufferSize)
 	enc := json.NewEncoder(bw)
 	enc.SetEscapeHTML(false)
 	return &Sink{bw: bw, enc: enc}

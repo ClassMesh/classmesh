@@ -138,9 +138,11 @@ func (e *Engine) classify(ctx context.Context, r domain.Record) (domain.Classifi
 			return domain.Classification{}, "", fmt.Errorf("engine: %w", &stage.Error{Stage: st.Name(), Err: err})
 		}
 		if !e.gate.Admits(c.Confidence) {
-			e.logger.Debug("classification below confidence gate, escalating",
-				"record", r.ID, "stage", st.Name(), "category", c.Category,
-				"confidence", c.Confidence, "gate", e.gate)
+			if e.logger.Enabled(ctx, slog.LevelDebug) {
+				e.logger.Debug("classification below confidence gate, escalating",
+					"record", r.ID, "stage", st.Name(), "category", c.Category,
+					"confidence", c.Confidence, "gate", e.gate)
+			}
 			continue
 		}
 		c.Stage = st.Name()
