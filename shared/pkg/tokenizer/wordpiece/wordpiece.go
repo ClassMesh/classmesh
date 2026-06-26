@@ -18,6 +18,7 @@ import (
 	"os"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"golang.org/x/text/unicode/norm"
 )
@@ -151,8 +152,9 @@ func Load(path string, opts ...Option) (*Tokenizer, error) {
 // [CLS] and [SEP] and truncating to MaxLen when set.
 func (t *Tokenizer) Encode(text string) Encoding {
 	var pieces []string
+	var buf []byte
 	for _, word := range t.basicTokenize(text) {
-		pieces = append(pieces, t.wordpiece(word)...)
+		pieces, buf = t.wordpiece(pieces, buf, word)
 	}
 	if t.maxLen > 0 && len(pieces) > t.maxLen-2 {
 		pieces = pieces[:t.maxLen-2]
@@ -195,41 +197,46 @@ func (t *Tokenizer) basicTokenize(text string) []string {
 	return out
 }
 
-// wordpiece segments a single word into subword tokens with greedy
-// longest-match-first lookup. A word with any unmatchable piece, or longer
-// than maxPerWord characters, becomes the unknown token.
-func (t *Tokenizer) wordpiece(word string) []string {
-	runes := []rune(word)
-	if len(runes) == 0 {
-		return nil
+// wordpiece segments word into subword tokens with greedy longest-match-first
+// lookup, appending them to dst. buf is reused scratch for the "##"-prefixed
+// continuation lookups, so candidates do not allocate. A word with any
+// unmatchable piece, or longer than maxPerWord characters, becomes the unknown
+// token. It returns the grown dst and buf.
+func (t *Tokenizer) wordpiece(dst []string, buf []byte, word string) ([]string, []byte) {
+	if word == "" {
+		return dst, buf
 	}
-	if len(runes) > t.maxPerWord {
-		return []string{t.unk}
+	if utf8.RuneCountInString(word) > t.maxPerWord {
+		return append(dst, t.unk), buf
 	}
-	var out []string
-	for start := 0; start < len(runes); {
-		end := len(runes)
-		var match string
-		found := false
+	mark := len(dst)
+	for start := 0; start < len(word); {
+		end := len(word)
+		match, matchEnd := "", -1
 		for start < end {
-			sub := string(runes[start:end])
-			if start > 0 {
-				sub = "##" + sub
+			if start == 0 {
+				if _, ok := t.vocab[word[start:end]]; ok {
+					match, matchEnd = word[start:end], end
+					break
+				}
+			} else {
+				buf = append(buf[:0], "##"...)
+				buf = append(buf, word[start:end]...)
+				if _, ok := t.vocab[string(buf)]; ok {
+					match, matchEnd = string(buf), end
+					break
+				}
 			}
-			if _, ok := t.vocab[sub]; ok {
-				match = sub
-				found = true
-				break
-			}
-			end--
+			_, size := utf8.DecodeLastRuneInString(word[start:end])
+			end -= size
 		}
-		if !found {
-			return []string{t.unk}
+		if matchEnd < 0 {
+			return append(dst[:mark], t.unk), buf
 		}
-		out = append(out, match)
-		start = end
+		dst = append(dst, match)
+		start = matchEnd
 	}
-	return out
+	return dst, buf
 }
 
 // cleanText drops control characters and replacement runes and collapses every
