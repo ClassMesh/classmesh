@@ -116,6 +116,66 @@ func TestClassifyHonorsContextCancellation(t *testing.T) {
 	}
 }
 
+func TestClassifyBatchPreservesOrderAndMix(t *testing.T) {
+	c, err := New(Deps{Stages: []stage.Stage{
+		stage.NewStatic("rules", map[string]string{"ping": "noise", "pay": "billing"}),
+	}})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	results := c.ClassifyBatch(context.Background(), []domain.Record{rec("ping"), rec("nope"), rec("pay")})
+	if len(results) != 3 {
+		t.Fatalf("len(results) = %d, want 3", len(results))
+	}
+	if results[0].Err != nil || results[0].Classification.Category != "noise" {
+		t.Fatalf("results[0] = %+v, want noise", results[0])
+	}
+	if !errors.Is(results[1].Err, stage.ErrUnclassified) {
+		t.Fatalf("results[1].Err = %v, want ErrUnclassified", results[1].Err)
+	}
+	if results[2].Err != nil || results[2].Classification.Category != "billing" {
+		t.Fatalf("results[2] = %+v, want billing", results[2])
+	}
+}
+
+func TestClassifyBatchEmpty(t *testing.T) {
+	c, err := New(Deps{Stages: []stage.Stage{stage.NewStatic("rules", nil)}})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	if got := c.ClassifyBatch(context.Background(), nil); len(got) != 0 {
+		t.Fatalf("ClassifyBatch(nil) = %v, want empty", got)
+	}
+}
+
+func TestClassifyBatchPropagatesStageError(t *testing.T) {
+	boom := errors.New("boom")
+	c, err := New(Deps{Stages: []stage.Stage{failing{err: boom}}})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	results := c.ClassifyBatch(context.Background(), []domain.Record{rec("x")})
+	if len(results) != 1 || !errors.Is(results[0].Err, boom) {
+		t.Fatalf("results = %+v, want one wrapping boom", results)
+	}
+}
+
+func TestClassifyBatchHonorsCancellation(t *testing.T) {
+	c, err := New(Deps{Stages: []stage.Stage{stage.NewStatic("rules", map[string]string{"ping": "noise"})}})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	results := c.ClassifyBatch(ctx, []domain.Record{rec("ping"), rec("ping")})
+	for i, r := range results {
+		if !errors.Is(r.Err, context.Canceled) {
+			t.Fatalf("results[%d].Err = %v, want context.Canceled", i, r.Err)
+		}
+	}
+}
+
 func TestNewValidation(t *testing.T) {
 	if _, err := New(Deps{}); err == nil {
 		t.Fatal("New() with no stages error = nil, want error")
