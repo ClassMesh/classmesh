@@ -1,6 +1,7 @@
 // Package classifier runs records through an ordered stage cascade, the
 // library counterpart to the streaming engine. Build one with New and call
-// Classify for a single record or ClassifyBatch for a slice; reach for engine
+// Classify for a single record, ClassifyBatch or ClassifyBatchConcurrent for a
+// slice; reach for engine
 // when you want to drain a source into a sink instead.
 package classifier
 
@@ -8,6 +9,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
+	"sync/atomic"
 
 	"github.com/ClassMesh/classmesh/shared/pkg/domain"
 	"github.com/ClassMesh/classmesh/shared/pkg/stage"
@@ -73,17 +76,49 @@ type Result struct {
 	Err            error
 }
 
-// ClassifyBatch classifies records and returns one Result per input, in the
-// same order, reusing the same cascade and gate as Classify. It is
-// synchronous; running records concurrently is a later optimization. On a
-// cancelled context it does not stop early: every remaining record gets a
+// ClassifyBatch classifies records sequentially and returns one Result per
+// input, in the same order, reusing the same cascade and gate as Classify. On
+// a cancelled context it does not stop early: every remaining record gets a
 // Result whose Err is the context error, so len(results) always equals
-// len(records).
+// len(records). For CPU-bound parallelism use ClassifyBatchConcurrent.
 func (c *Classifier) ClassifyBatch(ctx context.Context, records []domain.Record) []Result {
 	results := make([]Result, len(records))
 	for i, r := range records {
 		cl, err := c.Classify(ctx, r)
 		results[i] = Result{Classification: cl, Err: err}
 	}
+	return results
+}
+
+// ClassifyBatchConcurrent is ClassifyBatch spread across up to workers
+// goroutines, returning Results in input order. The stages must be safe for
+// concurrent Classify calls; the built-in stages are, since they only read
+// state fixed at construction. Fewer than two workers, or fewer than two
+// records, runs sequentially.
+func (c *Classifier) ClassifyBatchConcurrent(ctx context.Context, records []domain.Record, workers int) []Result {
+	if workers < 2 || len(records) < 2 {
+		return c.ClassifyBatch(ctx, records)
+	}
+	if workers > len(records) {
+		workers = len(records)
+	}
+	results := make([]Result, len(records))
+	var next int64 = -1
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for w := 0; w < workers; w++ {
+		go func() {
+			defer wg.Done()
+			for {
+				i := int(atomic.AddInt64(&next, 1))
+				if i >= len(records) {
+					return
+				}
+				cl, err := c.Classify(ctx, records[i])
+				results[i] = Result{Classification: cl, Err: err}
+			}
+		}()
+	}
+	wg.Wait()
 	return results
 }
