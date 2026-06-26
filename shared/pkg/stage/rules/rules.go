@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"reflect"
 	"regexp"
@@ -171,10 +172,17 @@ func New(rules []Rule) (*Stage, error) {
 	return &Stage{rules: compiled}, nil
 }
 
-// Parse builds a Stage from a YAML document.
+// Parse builds a Stage from a YAML document. Unknown fields are rejected so a
+// misspelled key (categorie, containsx) is a clear error rather than a rule
+// that silently does nothing.
 func Parse(data []byte) (*Stage, error) {
+	dec := yaml.NewDecoder(bytes.NewReader(data))
+	dec.KnownFields(true)
 	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	if err := dec.Decode(&cfg); err != nil {
+		if errors.Is(err, io.EOF) {
+			return New(nil)
+		}
 		return nil, fmt.Errorf("rules: parse yaml: %w", err)
 	}
 	return New(cfg.Rules)
@@ -279,6 +287,9 @@ func containsCheck(sub, label string) (check, error) {
 }
 
 func regexCheck(pattern, label string) (check, error) {
+	if pattern == "" {
+		return check{}, fmt.Errorf("rules: %s: empty regex matcher (matches everything)", label)
+	}
 	re, err := regexp.Compile(pattern)
 	if err != nil {
 		return check{}, fmt.Errorf("rules: %s: %w", label, err)
@@ -327,6 +338,7 @@ func fieldCheck(fm FieldMatcher, label string) (check, error) {
 	}
 
 	path := fm.Path
+	segments := fieldpath.Split(path)
 	var desc string
 	var pred fieldPredicate
 	switch {
@@ -334,7 +346,7 @@ func fieldCheck(fm FieldMatcher, label string) (check, error) {
 		want := *fm.Exact
 		desc = fmt.Sprintf("field %s == %q", path, want)
 		pred = func(fields map[string]any) bool {
-			s, ok := lookupString(fields, path)
+			s, ok := lookupString(fields, segments)
 			return ok && s == want
 		}
 	case fm.Contains != nil:
@@ -344,7 +356,7 @@ func fieldCheck(fm FieldMatcher, label string) (check, error) {
 		}
 		desc = fmt.Sprintf("field %s contains %q", path, want)
 		pred = func(fields map[string]any) bool {
-			s, ok := lookupString(fields, path)
+			s, ok := lookupString(fields, segments)
 			return ok && strings.Contains(s, want)
 		}
 	case fm.Regex != nil:
@@ -354,35 +366,35 @@ func fieldCheck(fm FieldMatcher, label string) (check, error) {
 		}
 		desc = fmt.Sprintf("field %s matches %q", path, re.String())
 		pred = func(fields map[string]any) bool {
-			s, ok := lookupString(fields, path)
+			s, ok := lookupString(fields, segments)
 			return ok && re.MatchString(s)
 		}
 	case fm.Gt != nil:
 		want := *fm.Gt
 		desc = fmt.Sprintf("field %s > %v", path, want)
 		pred = func(fields map[string]any) bool {
-			n, ok := lookupNumber(fields, path)
+			n, ok := lookupNumber(fields, segments)
 			return ok && n > want
 		}
 	case fm.Gte != nil:
 		want := *fm.Gte
 		desc = fmt.Sprintf("field %s >= %v", path, want)
 		pred = func(fields map[string]any) bool {
-			n, ok := lookupNumber(fields, path)
+			n, ok := lookupNumber(fields, segments)
 			return ok && n >= want
 		}
 	case fm.Lt != nil:
 		want := *fm.Lt
 		desc = fmt.Sprintf("field %s < %v", path, want)
 		pred = func(fields map[string]any) bool {
-			n, ok := lookupNumber(fields, path)
+			n, ok := lookupNumber(fields, segments)
 			return ok && n < want
 		}
 	case fm.Lte != nil:
 		want := *fm.Lte
 		desc = fmt.Sprintf("field %s <= %v", path, want)
 		pred = func(fields map[string]any) bool {
-			n, ok := lookupNumber(fields, path)
+			n, ok := lookupNumber(fields, segments)
 			return ok && n <= want
 		}
 	default:
@@ -393,7 +405,7 @@ func fieldCheck(fm FieldMatcher, label string) (check, error) {
 			desc = fmt.Sprintf("field %s absent", path)
 		}
 		pred = func(fields map[string]any) bool {
-			_, ok := fieldpath.Get(fields, path)
+			_, ok := fieldpath.Lookup(fields, segments)
 			return ok == want
 		}
 	}
@@ -409,10 +421,11 @@ func fieldCheck(fm FieldMatcher, label string) (check, error) {
 	}, nil
 }
 
-// lookupString renders the scalar value at path (string, number, bool) as
-// text. A missing path or a non-scalar value (object, array, null) reports false.
-func lookupString(fields map[string]any, path string) (string, bool) {
-	v, ok := fieldpath.Get(fields, path)
+// lookupString renders the scalar value at the path segments (string, number,
+// bool) as text. A missing path or a non-scalar value (object, array, null)
+// reports false.
+func lookupString(fields map[string]any, segments []string) (string, bool) {
+	v, ok := fieldpath.Lookup(fields, segments)
 	if !ok {
 		return "", false
 	}
@@ -440,10 +453,11 @@ func lookupString(fields map[string]any, path string) (string, bool) {
 	}
 }
 
-// lookupNumber reads the value at path as a float64. A missing path or a value
-// that is not numeric (including a numeric-looking string) reports false.
-func lookupNumber(fields map[string]any, path string) (float64, bool) {
-	v, ok := fieldpath.Get(fields, path)
+// lookupNumber reads the value at the path segments as a float64. A missing
+// path or a value that is not numeric (including a numeric-looking string)
+// reports false.
+func lookupNumber(fields map[string]any, segments []string) (float64, bool) {
+	v, ok := fieldpath.Lookup(fields, segments)
 	if !ok {
 		return 0, false
 	}

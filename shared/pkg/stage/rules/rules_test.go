@@ -302,6 +302,8 @@ func TestValidation(t *testing.T) {
 		{"no matchers", "rules:\n  - category: a", "at least one matcher"},
 		{"empty contains", "rules:\n  - category: a\n    contains: [\"\"]", "empty contains"},
 		{"bad regex", "rules:\n  - category: a\n    regex: [\"(\"]", "rule 1 (a)"},
+		{"empty regex", "rules:\n  - category: a\n    regex: [\"\"]", "empty regex"},
+		{"unknown field", "rules:\n  - category: a\n    contains: [x]\n    bogus: true", "bogus"},
 		{"bad yaml", ":\nnot yaml at all\n  x", "parse yaml"},
 		{"field without path", "rules:\n  - category: a\n    fields:\n      - exact: x", "needs a path"},
 		{"field no condition", "rules:\n  - category: a\n    fields:\n      - path: p", "exactly one of"},

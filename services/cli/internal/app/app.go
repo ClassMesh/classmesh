@@ -3,6 +3,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -62,15 +63,18 @@ classify go to the --review file, or are counted and dropped when --review is
 not set. A summary is printed to stderr.`)
 }
 
-func runPipeline(ctx context.Context, args []string, s Streams) error {
+func runPipeline(ctx context.Context, args []string, s Streams) (err error) {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	fs.SetOutput(s.Err)
 	rulesPath := fs.String("rules", "", "path to the YAML rules file (required)")
 	input := fs.String("input", "text", "input format: text (one record per line) or jsonl (one JSON object per line)")
 	reviewPath := fs.String("review", "", "write unclassified records to this JSONL file")
 	minConfidence := fs.Float64("min-confidence", 0, "classifications below this confidence escalate to the next stage (0 disables)")
-	if err := fs.Parse(args); err != nil {
-		return err
+	if perr := fs.Parse(args); perr != nil {
+		if errors.Is(perr, flag.ErrHelp) {
+			return nil
+		}
+		return perr
 	}
 	if *rulesPath == "" {
 		usage(s.Err)
@@ -81,46 +85,64 @@ func runPipeline(ctx context.Context, args []string, s Streams) error {
 		return fmt.Errorf("run: --input must be text or jsonl, got %q", *input)
 	}
 
+	inputs := fs.Args()
+	for _, path := range inputs {
+		if path == *reviewPath {
+			return fmt.Errorf("run: --review path %q is also an input file", *reviewPath)
+		}
+	}
+
 	ruleStage, err := rules.Load(*rulesPath)
 	if err != nil {
 		return err
 	}
 
 	out := jsonl.New(s.Out)
-	defer func() { _ = out.Close() }()
+	defer func() {
+		if cerr := out.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("run: flush output: %w", cerr)
+		}
+	}()
 
 	var review sink.Sink
 	if *reviewPath != "" {
-		f, err := os.Create(*reviewPath)
-		if err != nil {
-			return fmt.Errorf("run: create review file: %w", err)
+		f, ferr := os.Create(*reviewPath)
+		if ferr != nil {
+			return fmt.Errorf("run: create review file: %w", ferr)
 		}
-		defer func() { _ = f.Close() }()
+		defer func() {
+			if cerr := f.Close(); cerr != nil && err == nil {
+				err = fmt.Errorf("run: close review file: %w", cerr)
+			}
+		}()
 		js := jsonl.New(f)
-		defer func() { _ = js.Close() }()
+		defer func() {
+			if cerr := js.Close(); cerr != nil && err == nil {
+				err = fmt.Errorf("run: flush review: %w", cerr)
+			}
+		}()
 		review = js
 	}
 
 	logger := slog.New(slog.NewTextHandler(s.Err, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
 	total := engine.Stats{ByStage: make(map[string]int)}
-	inputs := fs.Args()
 	if len(inputs) == 0 {
-		stats, err := runOne(ctx, newSource(*input, s.In, "stdin"), ruleStage, out, review, logger, *minConfidence)
+		stats, rerr := runOne(ctx, newSource(*input, s.In, "stdin"), ruleStage, out, review, logger, *minConfidence)
 		merge(&total, stats)
-		if err != nil {
-			return err
+		if rerr != nil {
+			return rerr
 		}
 	}
 	for _, path := range inputs {
-		src, err := openSource(*input, path)
-		if err != nil {
-			return err
+		src, oerr := openSource(*input, path)
+		if oerr != nil {
+			return oerr
 		}
-		stats, err := runOne(ctx, src, ruleStage, out, review, logger, *minConfidence)
+		stats, rerr := runOne(ctx, src, ruleStage, out, review, logger, *minConfidence)
 		merge(&total, stats)
-		if err != nil {
-			return err
+		if rerr != nil {
+			return rerr
 		}
 	}
 
@@ -155,6 +177,15 @@ func openSource(format, path string) (source.Source, error) {
 
 func runOne(ctx context.Context, src source.Source, st stage.Stage, out, review sink.Sink, logger *slog.Logger, minConfidence float64) (engine.Stats, error) {
 	defer func() { _ = src.Close() }()
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = src.Close()
+		case <-done:
+		}
+	}()
 	e, err := engine.New(engine.Deps{
 		Source:        src,
 		Stages:        []stage.Stage{st},

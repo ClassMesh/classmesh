@@ -16,8 +16,12 @@ Everything that flows through a pipeline is a `domain.Record`. It is a generic
 envelope, deliberately payload-agnostic:
 
 - `ID` identifies the record within a run.
+- `Kind` names the payload shape (`text`, `log`, `event`, `record`, `json`) so
+  a stage can tell what it is looking at without sniffing the bytes.
 - `Data` holds the raw payload bytes, whatever they are: a log line today, a
   JSON document or an event tomorrow.
+- `Fields` holds structured attributes a source decoded from the payload (a
+  JSON object, say), or is nil for unstructured payloads.
 - `Meta` carries source-specific context such as a file name or line number.
 
 The core packages never inspect `Data` as a log line. They move records,

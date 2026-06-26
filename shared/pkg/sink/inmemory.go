@@ -41,7 +41,8 @@ func (s *InMemory) Close() error {
 	return nil
 }
 
-// Entries returns everything written so far, in order.
+// Entries returns a copy of everything written so far, in order, so callers
+// cannot mutate the sink's state.
 func (s *InMemory) Entries() []Entry {
-	return s.entries
+	return append([]Entry(nil), s.entries...)
 }

@@ -41,7 +41,9 @@ var _ sink.Sink = (*Sink)(nil)
 // New returns a Sink writing JSON Lines to w.
 func New(w io.Writer) *Sink {
 	bw := bufio.NewWriter(w)
-	return &Sink{bw: bw, enc: json.NewEncoder(bw)}
+	enc := json.NewEncoder(bw)
+	enc.SetEscapeHTML(false)
+	return &Sink{bw: bw, enc: enc}
 }
 
 // Write implements sink.Sink.

@@ -37,7 +37,7 @@ func New(d Deps) (*Classifier, error) {
 	if err != nil {
 		return nil, fmt.Errorf("classifier: %w", err)
 	}
-	return &Classifier{stages: d.Stages, gate: gate}, nil
+	return &Classifier{stages: append([]stage.Stage(nil), d.Stages...), gate: gate}, nil
 }
 
 // Classify walks the cascade and returns the first decision at or above the
@@ -59,6 +59,7 @@ func (c *Classifier) Classify(ctx context.Context, r domain.Record) (domain.Clas
 		if !c.gate.Admits(cl.Confidence) {
 			continue
 		}
+		cl.Stage = st.Name()
 		return cl, nil
 	}
 	return domain.Classification{}, stage.ErrUnclassified
@@ -74,7 +75,10 @@ type Result struct {
 
 // ClassifyBatch classifies records and returns one Result per input, in the
 // same order, reusing the same cascade and gate as Classify. It is
-// synchronous; running records concurrently is a later optimization.
+// synchronous; running records concurrently is a later optimization. On a
+// cancelled context it does not stop early: every remaining record gets a
+// Result whose Err is the context error, so len(results) always equals
+// len(records).
 func (c *Classifier) ClassifyBatch(ctx context.Context, records []domain.Record) []Result {
 	results := make([]Result, len(records))
 	for i, r := range records {
