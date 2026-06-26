@@ -58,18 +58,23 @@ type Matcher struct {
 }
 
 // FieldMatcher tests one value in a record's decoded Fields, addressed by a
-// dot-separated Path (see fieldpath). Exactly one condition must be set: Exact
-// (equal), Contains (substring), Regex (pattern), or Exists (present when
-// true, absent when false). The string conditions stringify a scalar value
-// (string, number, bool); a value that is an object or array never matches a
-// string condition. Numbers are matched by their text form, so quote them in
-// YAML (exact: "500").
+// dot-separated Path (see fieldpath). Exactly one condition must be set:
+//   - Exact (equal), Contains (substring), Regex (pattern) compare the value as
+//     text; a value that is an object or array never matches. Numbers are
+//     matched by their text form, so quote them in YAML (exact: "500").
+//   - Gt, Gte, Lt, Lte compare the value as a number; a value that is not
+//     numeric (including a numeric-looking string) never matches.
+//   - Exists is true when the path is present, false when absent.
 type FieldMatcher struct {
-	Path     string  `yaml:"path"`
-	Exact    *string `yaml:"exact"`
-	Contains *string `yaml:"contains"`
-	Regex    *string `yaml:"regex"`
-	Exists   *bool   `yaml:"exists"`
+	Path     string   `yaml:"path"`
+	Exact    *string  `yaml:"exact"`
+	Contains *string  `yaml:"contains"`
+	Regex    *string  `yaml:"regex"`
+	Exists   *bool    `yaml:"exists"`
+	Gt       *float64 `yaml:"gt"`
+	Gte      *float64 `yaml:"gte"`
+	Lt       *float64 `yaml:"lt"`
+	Lte      *float64 `yaml:"lte"`
 }
 
 // Config is the YAML document shape.
@@ -309,13 +314,16 @@ func fieldCheck(fm FieldMatcher, label string) (check, error) {
 		return check{}, fmt.Errorf("rules: %s: field matcher needs a path", label)
 	}
 	set := 0
-	for _, on := range []bool{fm.Exact != nil, fm.Contains != nil, fm.Regex != nil, fm.Exists != nil} {
+	for _, on := range []bool{
+		fm.Exact != nil, fm.Contains != nil, fm.Regex != nil, fm.Exists != nil,
+		fm.Gt != nil, fm.Gte != nil, fm.Lt != nil, fm.Lte != nil,
+	} {
 		if on {
 			set++
 		}
 	}
 	if set != 1 {
-		return check{}, fmt.Errorf("rules: %s: field %q needs exactly one of exact/contains/regex/exists", label, fm.Path)
+		return check{}, fmt.Errorf("rules: %s: field %q needs exactly one of exact/contains/regex/exists/gt/gte/lt/lte", label, fm.Path)
 	}
 
 	path := fm.Path
@@ -348,6 +356,34 @@ func fieldCheck(fm FieldMatcher, label string) (check, error) {
 		pred = func(fields map[string]any) bool {
 			s, ok := lookupString(fields, path)
 			return ok && re.MatchString(s)
+		}
+	case fm.Gt != nil:
+		want := *fm.Gt
+		desc = fmt.Sprintf("field %s > %v", path, want)
+		pred = func(fields map[string]any) bool {
+			n, ok := lookupNumber(fields, path)
+			return ok && n > want
+		}
+	case fm.Gte != nil:
+		want := *fm.Gte
+		desc = fmt.Sprintf("field %s >= %v", path, want)
+		pred = func(fields map[string]any) bool {
+			n, ok := lookupNumber(fields, path)
+			return ok && n >= want
+		}
+	case fm.Lt != nil:
+		want := *fm.Lt
+		desc = fmt.Sprintf("field %s < %v", path, want)
+		pred = func(fields map[string]any) bool {
+			n, ok := lookupNumber(fields, path)
+			return ok && n < want
+		}
+	case fm.Lte != nil:
+		want := *fm.Lte
+		desc = fmt.Sprintf("field %s <= %v", path, want)
+		pred = func(fields map[string]any) bool {
+			n, ok := lookupNumber(fields, path)
+			return ok && n <= want
 		}
 	default:
 		want := *fm.Exists
@@ -401,5 +437,31 @@ func lookupString(fields map[string]any, path string) (string, bool) {
 		return strconv.FormatFloat(rv.Float(), 'f', -1, 64), true
 	default:
 		return "", false
+	}
+}
+
+// lookupNumber reads the value at path as a float64. A missing path or a value
+// that is not numeric (including a numeric-looking string) reports false.
+func lookupNumber(fields map[string]any, path string) (float64, bool) {
+	v, ok := fieldpath.Get(fields, path)
+	if !ok {
+		return 0, false
+	}
+	switch t := v.(type) {
+	case float64:
+		return t, true
+	case json.Number:
+		f, err := t.Float64()
+		return f, err == nil
+	}
+	switch rv := reflect.ValueOf(v); rv.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return float64(rv.Int()), true
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return float64(rv.Uint()), true
+	case reflect.Float32, reflect.Float64:
+		return rv.Float(), true
+	default:
+		return 0, false
 	}
 }

@@ -127,6 +127,26 @@ func TestClassifyFieldMatchers(t *testing.T) {
 			map[string]any{"http": map[string]any{"status": float64(503)}}, "se",
 		},
 		{
+			"gte on a number matches",
+			"rules:\n  - category: se\n    fields:\n      - path: http.status\n        gte: 500",
+			map[string]any{"http": map[string]any{"status": float64(503)}}, "se",
+		},
+		{
+			"gte below threshold does not match",
+			"rules:\n  - category: se\n    fields:\n      - path: http.status\n        gte: 500",
+			map[string]any{"http": map[string]any{"status": float64(404)}}, "",
+		},
+		{
+			"lt on a number matches",
+			"rules:\n  - category: fast\n    fields:\n      - path: latency_ms\n        lt: 100",
+			map[string]any{"latency_ms": float64(12)}, "fast",
+		},
+		{
+			"numeric comparison on a string field does not match",
+			"rules:\n  - category: se\n    fields:\n      - path: status\n        gte: 500",
+			map[string]any{"status": "503"}, "",
+		},
+		{
 			"exists true matches present",
 			"rules:\n  - category: traced\n    fields:\n      - path: trace_id\n        exists: true",
 			map[string]any{"trace_id": "abc"}, "traced",
@@ -286,6 +306,7 @@ func TestValidation(t *testing.T) {
 		{"field without path", "rules:\n  - category: a\n    fields:\n      - exact: x", "needs a path"},
 		{"field no condition", "rules:\n  - category: a\n    fields:\n      - path: p", "exactly one of"},
 		{"field two conditions", "rules:\n  - category: a\n    fields:\n      - path: p\n        exact: x\n        exists: true", "exactly one of"},
+		{"field two numeric conditions", "rules:\n  - category: a\n    fields:\n      - path: p\n        gte: 1\n        lt: 9", "exactly one of"},
 		{"field empty contains", "rules:\n  - category: a\n    fields:\n      - path: p\n        contains: \"\"", "empty contains"},
 		{"field bad regex", "rules:\n  - category: a\n    fields:\n      - path: p\n        regex: \"(\"", "field \"p\""},
 		{"any matcher empty", "rules:\n  - category: a\n    any:\n      - {}", "exactly one of contains/regex/field"},
