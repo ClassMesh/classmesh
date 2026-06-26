@@ -1,7 +1,7 @@
-// Package classifier runs one record through an ordered stage cascade, the
+// Package classifier runs records through an ordered stage cascade, the
 // library counterpart to the streaming engine. Build one with New and call
-// Classify per record; reach for engine when you want to drain a source into
-// a sink instead.
+// Classify for a single record or ClassifyBatch for a slice; reach for engine
+// when you want to drain a source into a sink instead.
 package classifier
 
 import (
@@ -62,4 +62,24 @@ func (c *Classifier) Classify(ctx context.Context, r domain.Record) (domain.Clas
 		return cl, nil
 	}
 	return domain.Classification{}, stage.ErrUnclassified
+}
+
+// Result pairs a record's Classification with the error from classifying it:
+// nil on success, stage.ErrUnclassified when no stage decided, or a wrapped
+// stage error.
+type Result struct {
+	Classification domain.Classification
+	Err            error
+}
+
+// ClassifyBatch classifies records and returns one Result per input, in the
+// same order, reusing the same cascade and gate as Classify. It is
+// synchronous; running records concurrently is a later optimization.
+func (c *Classifier) ClassifyBatch(ctx context.Context, records []domain.Record) []Result {
+	results := make([]Result, len(records))
+	for i, r := range records {
+		cl, err := c.Classify(ctx, r)
+		results[i] = Result{Classification: cl, Err: err}
+	}
+	return results
 }
