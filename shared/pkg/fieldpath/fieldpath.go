@@ -1,20 +1,39 @@
 // Package fieldpath reads nested values out of a decoded JSON object
-// (map[string]any) by dot-separated path, like "user.id". It is the lookup the
-// field-matching rules build on. A dot always separates segments, so a key
-// that literally contains a dot cannot be addressed.
+// (map[string]any) by path. The default syntax is a dot-separated path, like
+// "user.id". A path that begins with "/" is instead an RFC 6901 JSON Pointer
+// ("/user/id"), which can address a key that itself contains a dot ("/http.status").
+// It is the lookup the field-matching rules build on.
 package fieldpath
 
 import "strings"
 
-// Split breaks a dot-separated path into segments, returning nil for an empty
-// path so it round-trips through Lookup the same way Get treats "". Callers on
-// a hot path should Split once and reuse the result with Lookup rather than
-// calling Get per record.
+// Split breaks a path into segments. A "/"-prefixed path is parsed as a JSON
+// Pointer (see splitPointer); otherwise it is split on ".". An empty path
+// returns nil so it round-trips through Lookup the same way Get treats "".
+// Callers on a hot path should Split once and reuse the result with Lookup
+// rather than calling Get per record.
 func Split(path string) []string {
 	if path == "" {
 		return nil
 	}
+	if path[0] == '/' {
+		return splitPointer(path)
+	}
 	return strings.Split(path, ".")
+}
+
+// splitPointer parses an RFC 6901 JSON Pointer into segments, unescaping ~1 as
+// "/" and ~0 as "~".
+func splitPointer(path string) []string {
+	segs := strings.Split(path[1:], "/")
+	for i, s := range segs {
+		if strings.IndexByte(s, '~') >= 0 {
+			s = strings.ReplaceAll(s, "~1", "/")
+			s = strings.ReplaceAll(s, "~0", "~")
+			segs[i] = s
+		}
+	}
+	return segs
 }
 
 // Lookup walks fields by precompiled segments and returns the value at the end

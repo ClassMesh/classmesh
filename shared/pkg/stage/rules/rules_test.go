@@ -132,6 +132,11 @@ func TestClassifyFieldMatchers(t *testing.T) {
 			map[string]any{"http": map[string]any{"status": float64(503)}}, "se",
 		},
 		{
+			"json pointer addresses a key containing a dot",
+			"rules:\n  - category: se\n    fields:\n      - path: /http.status\n        gte: 500",
+			map[string]any{"http.status": float64(503)}, "se",
+		},
+		{
 			"gte below threshold does not match",
 			"rules:\n  - category: se\n    fields:\n      - path: http.status\n        gte: 500",
 			map[string]any{"http": map[string]any{"status": float64(404)}}, "",
