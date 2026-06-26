@@ -5,6 +5,36 @@ import (
 	"testing"
 )
 
+func TestJSONPointer(t *testing.T) {
+	fields := map[string]any{
+		"user":        map[string]any{"id": float64(7)},
+		"http.status": float64(503),
+		"a/b":         "slash",
+		"a~b":         "tilde",
+	}
+	cases := []struct {
+		name string
+		path string
+		want any
+		ok   bool
+	}{
+		{"nested pointer", "/user/id", float64(7), true},
+		{"dotted key as pointer", "/http.status", float64(503), true},
+		{"escaped slash (~1)", "/a~1b", "slash", true},
+		{"escaped tilde (~0)", "/a~0b", "tilde", true},
+		{"dotted key via dot syntax fails", "http.status", nil, false},
+		{"missing pointer", "/user/name", nil, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := Get(fields, tc.path)
+			if ok != tc.ok || !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("Get(%q) = %v, %v; want %v, %v", tc.path, got, ok, tc.want, tc.ok)
+			}
+		})
+	}
+}
+
 func TestGet(t *testing.T) {
 	fields := map[string]any{
 		"level": "error",
