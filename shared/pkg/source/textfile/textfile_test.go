@@ -3,14 +3,41 @@ package textfile
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ClassMesh/classmesh/shared/pkg/domain"
 	"github.com/ClassMesh/classmesh/shared/pkg/source"
 )
+
+// TestCloseUnblocksBlockedNext proves a Close (as the CLI does on context
+// cancellation) frees a Next that is blocked on a reader with no data.
+func TestCloseUnblocksBlockedNext(t *testing.T) {
+	pr, pw := io.Pipe()
+	t.Cleanup(func() { _ = pw.Close() })
+	s := New(pr, "pipe")
+
+	errc := make(chan error, 1)
+	go func() {
+		_, err := s.Next(context.Background())
+		errc <- err
+	}()
+
+	_ = s.Close()
+
+	select {
+	case err := <-errc:
+		if !errors.Is(err, source.ErrDrained) {
+			t.Fatalf("Next() after Close error = %v, want ErrDrained", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Next() did not return after Close; it stayed blocked")
+	}
+}
 
 func TestNewYieldsLinesWithMetadata(t *testing.T) {
 	s := New(strings.NewReader("alpha\n\ngamma"), "test-stream")

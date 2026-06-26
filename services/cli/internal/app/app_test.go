@@ -168,6 +168,30 @@ func TestRunRejectsUnknownInputFormat(t *testing.T) {
 	}
 }
 
+func TestRunHelpSucceeds(t *testing.T) {
+	var out, errOut bytes.Buffer
+	if err := Run(context.Background(), []string{"run", "--help"},
+		Streams{In: strings.NewReader(""), Out: &out, Err: &errOut}); err != nil {
+		t.Fatalf("run --help error = %v, want nil (help is success)", err)
+	}
+}
+
+func TestRunRejectsReviewEqualToInput(t *testing.T) {
+	dir := t.TempDir()
+	rulesPath := writeFile(t, dir, "rules.yml", testRules)
+	input := writeFile(t, dir, "in.log", "GET /healthz 200\n")
+	var out, errOut bytes.Buffer
+	err := Run(context.Background(),
+		[]string{"run", "--rules", rulesPath, "--review", input, input},
+		Streams{In: strings.NewReader(""), Out: &out, Err: &errOut})
+	if err == nil || !strings.Contains(err.Error(), "also an input") {
+		t.Fatalf("Run() error = %v, want a review/input conflict error", err)
+	}
+	if data, _ := os.ReadFile(input); string(data) != "GET /healthz 200\n" {
+		t.Fatalf("input file was truncated to %q; conflict check must run before create", data)
+	}
+}
+
 func TestRunRequiresRulesFlag(t *testing.T) {
 	var out, errOut bytes.Buffer
 	err := Run(context.Background(), []string{"run"},

@@ -48,7 +48,9 @@ type Classification struct {
 	Confidence float64
 	// Stage names the stage that produced this classification.
 	Stage string
-	// Reasons is optional evidence for the classification.
+	// Reasons is optional evidence for the classification. Treat it as
+	// read-only: a stage may hand back a shared slice (the rules stage does,
+	// to stay allocation-free), so callers must not mutate it in place.
 	Reasons []Reason
 }
 

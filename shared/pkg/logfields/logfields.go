@@ -70,15 +70,15 @@ func parseLogfmt(s string) map[string]any {
 	out := map[string]any{}
 	i := 0
 	for i < len(s) {
-		for i < len(s) && s[i] == ' ' {
+		for i < len(s) && isSpace(s[i]) {
 			i++
 		}
 		keyStart := i
-		for i < len(s) && s[i] != '=' && s[i] != ' ' {
+		for i < len(s) && s[i] != '=' && !isSpace(s[i]) {
 			i++
 		}
 		if i >= len(s) || s[i] != '=' || i == keyStart {
-			for i < len(s) && s[i] != ' ' {
+			for i < len(s) && !isSpace(s[i]) {
 				i++
 			}
 			continue
@@ -109,11 +109,13 @@ func readValue(s string, i *int) string {
 		return b.String()
 	}
 	start := *i
-	for *i < len(s) && s[*i] != ' ' {
+	for *i < len(s) && !isSpace(s[*i]) {
 		*i++
 	}
 	return s[start:*i]
 }
+
+func isSpace(b byte) bool { return b == ' ' || b == '\t' }
 
 func leadingToken(s string) (tok, rest string, ok bool) {
 	s = strings.TrimLeft(s, " \t")
