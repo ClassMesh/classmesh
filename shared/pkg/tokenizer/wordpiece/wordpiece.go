@@ -83,8 +83,12 @@ func New(vocab map[string]int32, opts ...Option) (*Tokenizer, error) {
 	if len(vocab) == 0 {
 		return nil, errors.New("wordpiece: vocab is empty")
 	}
+	owned := make(map[string]int32, len(vocab))
+	for tok, id := range vocab {
+		owned[tok] = id
+	}
 	t := &Tokenizer{
-		vocab:      vocab,
+		vocab:      owned,
 		unk:        DefaultUnknown,
 		cls:        DefaultClassify,
 		sep:        DefaultSeparator,

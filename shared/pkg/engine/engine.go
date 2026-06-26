@@ -79,7 +79,7 @@ func New(d Deps) (*Engine, error) {
 	}
 	return &Engine{
 		source: d.Source,
-		stages: d.Stages,
+		stages: append([]stage.Stage(nil), d.Stages...),
 		sink:   d.Sink,
 		review: d.Review,
 		logger: d.Logger,
@@ -143,6 +143,7 @@ func (e *Engine) classify(ctx context.Context, r domain.Record) (domain.Classifi
 				"confidence", c.Confidence, "gate", e.gate)
 			continue
 		}
+		c.Stage = st.Name()
 		return c, st.Name(), nil
 	}
 	return domain.Classification{}, "", nil
