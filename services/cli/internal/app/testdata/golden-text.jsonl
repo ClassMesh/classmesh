@@ -1,0 +1,3 @@
+{"id":"stdin:1","data":"GET /healthz 200","meta":{"line":"1","source":"stdin"},"category":"noise","confidence":1,"stage":"rules","reasons":[{"code":"health-noise","detail":"contains \"/healthz\" or contains \"/readiness\""}]}
+{"id":"stdin:2","data":"payment declined for order 7","meta":{"line":"2","source":"stdin"},"category":"billing","confidence":1,"stage":"rules","reasons":[{"code":"payment-failure","detail":"regex \"payment (failed|declined)\""}]}
+{"id":"stdin:3","data":"blocked: unauthorized token for user 42","meta":{"line":"3","source":"stdin"},"category":"auth","confidence":1,"stage":"rules","reasons":[{"code":"auth-signal","detail":"any(contains \"unauthorized\" or field event == \"login_failed\")"}]}
