@@ -25,6 +25,23 @@ For working examples of each contract, see [`textfile`](shared/pkg/source/textfi
 - `shared/`: domain types and the contracts ([`source`](shared/pkg/source), [`stage`](shared/pkg/stage), [`sink`](shared/pkg/sink)) with in-memory implementations for testing
 - `services/cli/`: the `classmesh` binary
 
+## Examples
+
+Runnable examples live in [`examples/`](examples): one ruleset that classifies
+both text logs and JSON events.
+
+```
+# text logs, one record per line
+classmesh run --rules examples/rules.yml examples/logs.txt
+
+# JSON events, one object per line, classified on their fields
+classmesh run --rules examples/rules.yml --input jsonl examples/events.jsonl
+```
+
+Each classified record is one JSON object on stdout with its category,
+confidence, the matched rule's reason, and (for events) the decoded fields.
+Records no rule matches are counted and reported on stderr.
+
 ## Performance
 
 Measured on a single core (AMD Ryzen 7 3800X, Go 1.22, `make bench`):

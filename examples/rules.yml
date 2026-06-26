@@ -1,0 +1,29 @@
+# Example ClassMesh ruleset.
+#
+# Rules are tried in order; the first one that matches wins. A rule can match
+# the raw payload (contains/regex) or the decoded fields of a JSON record
+# (fields, and the any/all groups). The same ruleset classifies both the text
+# logs in logs.txt and the JSON events in events.jsonl.
+rules:
+  - id: health-noise
+    category: noise
+    contains: ["/healthz", "/readiness"]
+
+  - id: payment-failure
+    category: billing
+    regex: ["payment (failed|declined)"]
+
+  # all: every matcher must hit. A 5xx error event.
+  - id: server-error-event
+    category: alert
+    all:
+      - field: {path: level, exact: error}
+      - field: {path: http.status, regex: "^5"}
+
+  # any: at least one matcher hits. Either an "unauthorized" line or a
+  # login_failed event.
+  - id: auth-signal
+    category: auth
+    any:
+      - contains: "unauthorized"
+      - field: {path: event, exact: login_failed}
