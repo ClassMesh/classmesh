@@ -44,7 +44,7 @@ Records no rule matches are counted and reported on stderr.
 
 ## Performance
 
-Measured on a single core (AMD Ryzen 7 3800X, Go 1.22, `make bench`):
+Measured on a single core (AMD Ryzen 7 3800X, `make bench`):
 
 | Path | Per record | Throughput | Allocations |
 |---|---|---|---|

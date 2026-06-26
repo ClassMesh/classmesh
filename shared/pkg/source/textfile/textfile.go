@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"sync/atomic"
 
 	"github.com/ClassMesh/classmesh/shared/pkg/domain"
 	"github.com/ClassMesh/classmesh/shared/pkg/source"
@@ -25,7 +26,7 @@ type Source struct {
 	scanner *bufio.Scanner
 	name    string
 	line    int
-	closed  bool
+	closed  atomic.Bool
 }
 
 var _ source.Source = (*Source)(nil)
@@ -57,10 +58,16 @@ func (s *Source) Next(ctx context.Context) (domain.Record, error) {
 	if err := ctx.Err(); err != nil {
 		return domain.Record{}, err
 	}
-	if s.closed {
+	if s.closed.Load() {
 		return domain.Record{}, source.ErrDrained
 	}
 	if !s.scanner.Scan() {
+		if s.closed.Load() {
+			if err := ctx.Err(); err != nil {
+				return domain.Record{}, err
+			}
+			return domain.Record{}, source.ErrDrained
+		}
 		if err := s.scanner.Err(); err != nil {
 			return domain.Record{}, fmt.Errorf("textfile: %s: %w", s.name, err)
 		}
@@ -78,12 +85,13 @@ func (s *Source) Next(ctx context.Context) (domain.Record, error) {
 	}, nil
 }
 
-// Close implements source.Source. Safe to call more than once.
+// Close implements source.Source. Safe to call more than once, and
+// concurrently with Next: closing the reader unblocks a pending read so a
+// cancelled run can stop instead of hanging on stdin or a pipe.
 func (s *Source) Close() error {
-	if s.closed {
+	if s.closed.Swap(true) {
 		return nil
 	}
-	s.closed = true
 	if s.rc != nil {
 		if err := s.rc.Close(); err != nil {
 			return fmt.Errorf("textfile: close %s: %w", s.name, err)

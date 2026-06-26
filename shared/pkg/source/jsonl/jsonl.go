@@ -16,6 +16,7 @@ import (
 	"io"
 	"os"
 	"strconv"
+	"sync/atomic"
 
 	"github.com/ClassMesh/classmesh/shared/pkg/domain"
 	"github.com/ClassMesh/classmesh/shared/pkg/source"
@@ -31,7 +32,7 @@ type Source struct {
 	scanner *bufio.Scanner
 	name    string
 	line    int
-	closed  bool
+	closed  atomic.Bool
 }
 
 var _ source.Source = (*Source)(nil)
@@ -64,7 +65,7 @@ func (s *Source) Next(ctx context.Context) (domain.Record, error) {
 	if err := ctx.Err(); err != nil {
 		return domain.Record{}, err
 	}
-	if s.closed {
+	if s.closed.Load() {
 		return domain.Record{}, source.ErrDrained
 	}
 	for s.scanner.Scan() {
@@ -96,18 +97,25 @@ func (s *Source) Next(ctx context.Context) (domain.Record, error) {
 			Meta:   map[string]string{"source": s.name, "line": line},
 		}, nil
 	}
+	if s.closed.Load() {
+		if err := ctx.Err(); err != nil {
+			return domain.Record{}, err
+		}
+		return domain.Record{}, source.ErrDrained
+	}
 	if err := s.scanner.Err(); err != nil {
 		return domain.Record{}, fmt.Errorf("jsonl: %s: %w", s.name, err)
 	}
 	return domain.Record{}, source.ErrDrained
 }
 
-// Close implements source.Source. Safe to call more than once.
+// Close implements source.Source. Safe to call more than once, and
+// concurrently with Next: closing the reader unblocks a pending read so a
+// cancelled run can stop instead of hanging on stdin or a pipe.
 func (s *Source) Close() error {
-	if s.closed {
+	if s.closed.Swap(true) {
 		return nil
 	}
-	s.closed = true
 	if s.rc != nil {
 		if err := s.rc.Close(); err != nil {
 			return fmt.Errorf("jsonl: close %s: %w", s.name, err)
