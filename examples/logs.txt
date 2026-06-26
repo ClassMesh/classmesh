@@ -1,0 +1,4 @@
+GET /healthz 200
+payment declined for order 7
+blocked: unauthorized token for user 42
+shipment 84712 dispatched from tlv
