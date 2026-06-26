@@ -78,7 +78,7 @@ func TestWordpiece(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := tok.wordpiece(tc.in); !reflect.DeepEqual(got, tc.want) {
+			if got, _ := tok.wordpiece(nil, nil, tc.in); !reflect.DeepEqual(got, tc.want) {
 				t.Fatalf("wordpiece(%q) = %v, want %v", tc.in, got, tc.want)
 			}
 		})
@@ -87,7 +87,7 @@ func TestWordpiece(t *testing.T) {
 
 func TestWordpieceLongWordIsUnknown(t *testing.T) {
 	tok := mustNew(t, bertVocab, MaxCharsPerWord(4))
-	if got := tok.wordpiece("running"); !reflect.DeepEqual(got, []string{"[UNK]"}) {
+	if got, _ := tok.wordpiece(nil, nil, "running"); !reflect.DeepEqual(got, []string{"[UNK]"}) {
 		t.Fatalf("wordpiece(long) = %v, want [[UNK]]", got)
 	}
 }
