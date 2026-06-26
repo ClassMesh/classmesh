@@ -18,7 +18,7 @@ rules:
     category: alert
     all:
       - field: {path: level, exact: error}
-      - field: {path: http.status, regex: "^5"}
+      - field: {path: http.status, gte: 500}
 
   # any: at least one matcher hits. Either an "unauthorized" line or a
   # login_failed event.
