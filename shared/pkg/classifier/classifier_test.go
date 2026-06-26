@@ -176,6 +176,54 @@ func TestClassifyBatchHonorsCancellation(t *testing.T) {
 	}
 }
 
+func TestClassifyBatchConcurrentPreservesOrder(t *testing.T) {
+	c, err := New(Deps{Stages: []stage.Stage{
+		stage.NewStatic("rules", map[string]string{"ping": "noise", "pay": "billing"}),
+	}})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	var records []domain.Record
+	for i := 0; i < 50; i++ {
+		records = append(records, rec("ping"), rec("nope"), rec("pay"))
+	}
+
+	results := c.ClassifyBatchConcurrent(context.Background(), records, 8)
+	if len(results) != len(records) {
+		t.Fatalf("len(results) = %d, want %d", len(results), len(records))
+	}
+	for i, r := range results {
+		switch i % 3 {
+		case 0:
+			if r.Err != nil || r.Classification.Category != "noise" {
+				t.Fatalf("results[%d] = %+v, want noise", i, r)
+			}
+		case 1:
+			if !errors.Is(r.Err, stage.ErrUnclassified) {
+				t.Fatalf("results[%d].Err = %v, want ErrUnclassified", i, r.Err)
+			}
+		case 2:
+			if r.Err != nil || r.Classification.Category != "billing" {
+				t.Fatalf("results[%d] = %+v, want billing", i, r)
+			}
+		}
+	}
+}
+
+func TestClassifyBatchConcurrentRunsSequentialBelowTwoWorkers(t *testing.T) {
+	c, err := New(Deps{Stages: []stage.Stage{stage.NewStatic("rules", map[string]string{"ping": "noise"})}})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	for _, w := range []int{0, 1} {
+		got := c.ClassifyBatchConcurrent(context.Background(), []domain.Record{rec("ping")}, w)
+		if len(got) != 1 || got[0].Classification.Category != "noise" {
+			t.Fatalf("workers=%d: %+v, want one noise result", w, got)
+		}
+	}
+}
+
 func TestNewValidation(t *testing.T) {
 	if _, err := New(Deps{}); err == nil {
 		t.Fatal("New() with no stages error = nil, want error")
