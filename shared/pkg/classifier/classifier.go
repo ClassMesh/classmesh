@@ -36,6 +36,9 @@ func New(d Deps) (*Classifier, error) {
 	if len(d.Stages) == 0 {
 		return nil, errors.New("classifier: at least one stage is required")
 	}
+	if err := stage.ValidateNames(d.Stages); err != nil {
+		return nil, fmt.Errorf("classifier: %w", err)
+	}
 	gate, err := stage.NewGate(d.MinConfidence)
 	if err != nil {
 		return nil, fmt.Errorf("classifier: %w", err)
@@ -58,6 +61,9 @@ func (c *Classifier) Classify(ctx context.Context, r domain.Record) (domain.Clas
 		}
 		if err != nil {
 			return domain.Classification{}, fmt.Errorf("classifier: %w", &stage.Error{Stage: st.Name(), Err: err})
+		}
+		if err := stage.ValidateResult(st.Name(), cl); err != nil {
+			return domain.Classification{}, fmt.Errorf("classifier: %w", err)
 		}
 		if !c.gate.Admits(cl.Confidence) {
 			continue
