@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/ClassMesh/classmesh/shared/pkg/cascade"
 	"github.com/ClassMesh/classmesh/shared/pkg/domain"
 	"github.com/ClassMesh/classmesh/shared/pkg/sink"
 	"github.com/ClassMesh/classmesh/shared/pkg/source"
@@ -128,31 +129,15 @@ func (e *Engine) Run(ctx context.Context) (Stats, error) {
 	}
 }
 
-// classify runs r through the cascade. It returns the classification and
-// the deciding stage's name, or an empty name when every stage returned
-// ErrUnclassified or decided below the confidence gate.
+// classify runs r through the cascade. It returns the classification and the
+// deciding stage's name, or an empty name when no stage decided the record.
 func (e *Engine) classify(ctx context.Context, r domain.Record) (domain.Classification, string, error) {
-	for _, st := range e.stages {
-		c, err := st.Classify(ctx, r)
-		if errors.Is(err, stage.ErrUnclassified) {
-			continue
-		}
-		if err != nil {
-			return domain.Classification{}, "", fmt.Errorf("engine: %w", &stage.Error{Stage: st.Name(), Err: err})
-		}
-		if err := stage.ValidateResult(st.Name(), c); err != nil {
-			return domain.Classification{}, "", fmt.Errorf("engine: %w", err)
-		}
-		if !e.gate.Admits(c.Confidence) {
-			if e.logger.Enabled(ctx, slog.LevelDebug) {
-				e.logger.Debug("classification below confidence gate, escalating",
-					"record", r.ID, "stage", st.Name(), "category", c.Category,
-					"confidence", c.Confidence, "gate", e.gate)
-			}
-			continue
-		}
-		c.Stage = st.Name()
-		return c, st.Name(), nil
+	c, res, err := cascade.Run(ctx, e.stages, e.gate, r, e.logger)
+	if err != nil {
+		return domain.Classification{}, "", fmt.Errorf("engine: %w", err)
+	}
+	if res == cascade.Classified {
+		return c, c.Stage, nil
 	}
 	return domain.Classification{}, "", nil
 }
