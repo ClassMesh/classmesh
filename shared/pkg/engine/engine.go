@@ -67,6 +67,9 @@ func New(d Deps) (*Engine, error) {
 	if len(d.Stages) == 0 {
 		return nil, errors.New("engine: at least one stage is required")
 	}
+	if err := stage.ValidateNames(d.Stages); err != nil {
+		return nil, fmt.Errorf("engine: %w", err)
+	}
 	if d.Sink == nil {
 		return nil, errors.New("engine: sink is required")
 	}
@@ -136,6 +139,9 @@ func (e *Engine) classify(ctx context.Context, r domain.Record) (domain.Classifi
 		}
 		if err != nil {
 			return domain.Classification{}, "", fmt.Errorf("engine: %w", &stage.Error{Stage: st.Name(), Err: err})
+		}
+		if err := stage.ValidateResult(st.Name(), c); err != nil {
+			return domain.Classification{}, "", fmt.Errorf("engine: %w", err)
 		}
 		if !e.gate.Admits(c.Confidence) {
 			if e.logger.Enabled(ctx, slog.LevelDebug) {
