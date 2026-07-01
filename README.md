@@ -42,6 +42,31 @@ Each classified record is one JSON object on stdout with its category,
 confidence, the matched rule's reason, and (for events) the decoded fields.
 Records no rule matches are counted and reported on stderr.
 
+### Cascade config (preview)
+
+A whole multi-stage cascade can be declared in one versioned YAML file. Today
+`validate` parses and checks it; building a runnable cascade from a config is a
+later change.
+
+```
+classmesh validate --config classmesh.yaml
+```
+
+```yaml
+version: 1
+input:  { type: text }                    # text | jsonl
+stages:
+  - { id: quarantine, type: schema, gate: 1.0 }
+  - { id: rules, type: rules, path: rules.yml }
+routes:
+  noise: { type: drop }                   # or { type: jsonl, path: noise.jsonl }
+sink:   { type: jsonl, stream: stdout }    # default sink for classified records
+review: { type: jsonl, path: review.jsonl } # optional; the undecided go here
+```
+
+Unknown keys, duplicate stage ids, out-of-range gates, and unknown stage/sink
+types are rejected before any input is opened.
+
 ## Performance
 
 Measured on a single core (AMD Ryzen 7 3800X, `make bench`):
