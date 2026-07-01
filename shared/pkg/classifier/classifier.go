@@ -12,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/ClassMesh/classmesh/shared/pkg/cascade"
 	"github.com/ClassMesh/classmesh/shared/pkg/domain"
 	"github.com/ClassMesh/classmesh/shared/pkg/stage"
 )
@@ -54,24 +55,14 @@ func (c *Classifier) Classify(ctx context.Context, r domain.Record) (domain.Clas
 	if err := ctx.Err(); err != nil {
 		return domain.Classification{}, err
 	}
-	for _, st := range c.stages {
-		cl, err := st.Classify(ctx, r)
-		if errors.Is(err, stage.ErrUnclassified) {
-			continue
-		}
-		if err != nil {
-			return domain.Classification{}, fmt.Errorf("classifier: %w", &stage.Error{Stage: st.Name(), Err: err})
-		}
-		if err := stage.ValidateResult(st.Name(), cl); err != nil {
-			return domain.Classification{}, fmt.Errorf("classifier: %w", err)
-		}
-		if !c.gate.Admits(cl.Confidence) {
-			continue
-		}
-		cl.Stage = st.Name()
-		return cl, nil
+	cl, res, err := cascade.Run(ctx, c.stages, c.gate, r, nil)
+	if err != nil {
+		return domain.Classification{}, fmt.Errorf("classifier: %w", err)
 	}
-	return domain.Classification{}, stage.ErrUnclassified
+	if res == cascade.Exhausted {
+		return domain.Classification{}, stage.ErrUnclassified
+	}
+	return cl, nil
 }
 
 // Result pairs a record's Classification with the error from classifying it:
