@@ -18,7 +18,8 @@ var _ Sink = (*Router)(nil)
 
 // NewRouter returns a Router that sends a record to the Sink mapped to its
 // classification Category, or to fallback when no category matches. A nil
-// fallback drops records with an unrouted category.
+// route Sink drops records of that category; a nil fallback drops records with
+// an unrouted category.
 func NewRouter(fallback Sink, routes map[string]Sink) *Router {
 	owned := make(map[string]Sink, len(routes))
 	for category, s := range routes {
@@ -30,6 +31,9 @@ func NewRouter(fallback Sink, routes map[string]Sink) *Router {
 // Write implements Sink, dispatching on the classification's Category.
 func (r *Router) Write(ctx context.Context, rec domain.Record, c domain.Classification) error {
 	if s, ok := r.routes[c.Category]; ok {
+		if s == nil {
+			return nil
+		}
 		return s.Write(ctx, rec, c)
 	}
 	if r.fallback != nil {
@@ -44,6 +48,9 @@ func (r *Router) Write(ctx context.Context, rec domain.Record, c domain.Classifi
 func (r *Router) Close() error {
 	var first error
 	for _, s := range r.routes {
+		if s == nil {
+			continue
+		}
 		if err := s.Close(); err != nil && first == nil {
 			first = err
 		}

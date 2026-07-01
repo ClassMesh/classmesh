@@ -261,8 +261,9 @@ func openSource(format, path string) (source.Source, error) {
 
 // buildFromConfig constructs the runnable pieces of a cascade from a config
 // file: the input format, the stages (each wrapped in its per-stage gate), the
-// default sink, and the review sink. Routes and non-rules stages are not yet
-// wired from a config.
+// output sink, and the review sink. When the config declares routes the output
+// is a sink.Router that dispatches by category over the default sink. Non-rules
+// stages are not yet wired from a config.
 func buildFromConfig(path string, s Streams, inputs []string, cleanup *[]func() error) (format string, stages []stage.Stage, out, review sink.Sink, err error) {
 	data, rerr := os.ReadFile(path)
 	if rerr != nil {
@@ -272,9 +273,6 @@ func buildFromConfig(path string, s Streams, inputs []string, cleanup *[]func() 
 	if perr != nil {
 		return "", nil, nil, nil, perr
 	}
-	if len(cfg.Routes) > 0 {
-		return "", nil, nil, nil, errors.New("run: routes from a config are not yet supported")
-	}
 	base := filepath.Dir(path)
 	if cerr := checkOutputPaths(cfg, path, base, inputs); cerr != nil {
 		return "", nil, nil, nil, cerr
@@ -283,12 +281,24 @@ func buildFromConfig(path string, s Streams, inputs []string, cleanup *[]func() 
 	if serr != nil {
 		return "", nil, nil, nil, serr
 	}
-	out, oerr := openSink(cfg.Sink, base, s, cleanup)
+	fallback, oerr := openSink(cfg.Sink, base, s, cleanup)
 	if oerr != nil {
 		return "", nil, nil, nil, fmt.Errorf("run: default sink: %w", oerr)
 	}
-	if out == nil {
+	if fallback == nil {
 		return "", nil, nil, nil, errors.New("run: the default sink cannot be drop")
+	}
+	out = fallback
+	if len(cfg.Routes) > 0 {
+		routes := make(map[string]sink.Sink, len(cfg.Routes))
+		for category, spec := range cfg.Routes {
+			rs, rerr := openSink(spec, base, s, cleanup)
+			if rerr != nil {
+				return "", nil, nil, nil, fmt.Errorf("run: route %q: %w", category, rerr)
+			}
+			routes[category] = rs
+		}
+		out = sink.NewRouter(fallback, routes)
 	}
 	if cfg.Review != nil {
 		review, oerr = openSink(*cfg.Review, base, s, cleanup)
@@ -314,6 +324,9 @@ func checkOutputPaths(cfg *config.Config, configPath, base string, inputs []stri
 	specs := []config.SinkSpec{cfg.Sink}
 	if cfg.Review != nil {
 		specs = append(specs, *cfg.Review)
+	}
+	for _, sp := range cfg.Routes {
+		specs = append(specs, sp)
 	}
 	stdouts := 0
 	for _, sp := range specs {
