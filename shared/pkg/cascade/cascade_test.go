@@ -105,6 +105,24 @@ func TestRunWrapsCancellation(t *testing.T) {
 	}
 }
 
+func TestRunPerStageGateEscalates(t *testing.T) {
+	low := stage.WithGate(decides("low", "x", 0.3), stage.Gate(0.7))
+	high := decides("high", "y", 0.9)
+	c, res, err := cascade.Run(context.Background(), []stage.Stage{low, high}, 0, domain.Record{}, nil)
+	if err != nil || res != cascade.Classified || c.Stage != "high" {
+		t.Fatalf("Run() = (%+v, %v, %v), want high classified after low's per-stage gate escalates", c, res, err)
+	}
+}
+
+func TestRunPerStageGateStillValidates(t *testing.T) {
+	bad := stage.WithGate(stub{name: "bad", c: domain.Classification{Confidence: 0.3}}, stage.Gate(0.7))
+	_, _, err := cascade.Run(context.Background(), []stage.Stage{bad}, 0, domain.Record{}, nil)
+	var se *stage.Error
+	if !errors.As(err, &se) || se.Stage != "bad" {
+		t.Fatalf("Run() err = %v, want *stage.Error(bad): an invalid below-gate result must not be masked", err)
+	}
+}
+
 func TestRunRejectsInvalidResult(t *testing.T) {
 	bad := stub{name: "bad", c: domain.Classification{Confidence: math.NaN()}}
 	_, _, err := cascade.Run(context.Background(), []stage.Stage{bad}, 0, domain.Record{}, nil)

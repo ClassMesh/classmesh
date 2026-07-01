@@ -45,21 +45,21 @@ type StageSpec struct {
 type SinkSpec struct {
 	Type   string `yaml:"type"`             // jsonl | drop
 	Path   string `yaml:"path,omitempty"`   // file path (jsonl)
-	Stream string `yaml:"stream,omitempty"` // stdout | stderr (jsonl)
+	Stream string `yaml:"stream,omitempty"` // stdout (jsonl); stderr is diagnostics-only
 }
 
 var (
 	inputTypes = map[string]bool{"text": true, "jsonl": true}
 	stageTypes = map[string]bool{"rules": true, "schema": true}
 	sinkTypes  = map[string]bool{"jsonl": true, "drop": true}
-	streams    = map[string]bool{"stdout": true, "stderr": true}
+	streams    = map[string]bool{"stdout": true}
 )
 
 const (
 	inputList  = "text, jsonl"
 	stageList  = "rules, schema"
 	sinkList   = "jsonl, drop"
-	streamList = "stdout, stderr"
+	streamList = "stdout"
 )
 
 // Parse decodes a config from YAML, rejecting unknown keys, then validates it.
@@ -136,6 +136,9 @@ func (c *Config) Validate() error {
 		seen[s.ID] = struct{}{}
 		if !stageTypes[s.Type] {
 			return fmt.Errorf("config: stage %q: type %q is not one of %s", s.ID, s.Type, stageList)
+		}
+		if s.Type == "rules" && s.Path == "" {
+			return fmt.Errorf("config: stage %q: a rules stage needs a path", s.ID)
 		}
 		if s.Gate != nil {
 			if _, err := stage.NewGate(*s.Gate); err != nil {
