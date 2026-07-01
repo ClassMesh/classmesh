@@ -63,3 +63,13 @@ stdin, constructs a source, the stage cascade, and the sinks, and hands them to
 the engine. Anything you can do from the command line you can do from Go by
 constructing the same packages directly. The library is the product; the CLI is
 one caller of it.
+
+## Declaring a cascade
+
+Beyond `--rules`, a cascade can be declared in a versioned YAML config
+(`shared/pkg/config`): an input, an ordered list of stages with optional
+per-stage confidence gates, category routes, a default sink, and a review sink.
+The config is parsed strictly — unknown keys are rejected — and validated up
+front, so a malformed pipeline fails before any input is opened; `classmesh
+validate --config <file>` reports the first problem. Constructing a runnable
+engine from a config is a separate step from validating one.
