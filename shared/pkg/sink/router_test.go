@@ -37,6 +37,20 @@ func TestRouterDispatchesByCategory(t *testing.T) {
 	}
 }
 
+func TestRouterNilRouteDrops(t *testing.T) {
+	fallback := NewInMemory()
+	r := NewRouter(fallback, map[string]Sink{"noise": nil})
+	if err := r.Write(context.Background(), domain.Record{ID: "x"}, domain.Classification{Category: "noise"}); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	if e := fallback.Entries(); len(e) != 0 {
+		t.Fatalf("fallback = %+v, want empty (a nil route drops its category)", e)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatalf("Close() error = %v (a nil route sink must not panic)", err)
+	}
+}
+
 func TestRouterNilFallbackDrops(t *testing.T) {
 	alerts := NewInMemory()
 	r := NewRouter(nil, map[string]Sink{"alert": alerts})
