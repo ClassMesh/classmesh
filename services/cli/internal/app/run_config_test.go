@@ -29,12 +29,35 @@ func TestRunFromConfig(t *testing.T) {
 	}
 }
 
-func TestRunConfigRejectsSchemaStage(t *testing.T) {
+func TestRunConfigSchemaStageQuarantines(t *testing.T) {
+	dir := t.TempDir()
+	sc := writeFile(t, dir, "schema.yml", "category: malformed\nfields:\n  - { path: user_id, required: true }\n")
+	r := writeFile(t, dir, "r.yml", "rules:\n  - category: ok\n    fields:\n      - { path: user_id, exists: true }\n")
+	cfg := writeFile(t, dir, "cm.yaml", "version: 1\ninput: { type: jsonl }\nstages:\n  - { id: shape, type: schema, path: \""+sc+"\" }\n  - { id: rules, type: rules, path: \""+r+"\" }\nsink: { type: jsonl, stream: stdout }\n")
+
+	var out, errOut bytes.Buffer
+	in := strings.NewReader("{\"user_id\": \"u1\"}\n{\"other\": true}\n")
+	if err := Run(context.Background(), []string{"run", "--config", cfg}, Streams{In: in, Out: &out, Err: &errOut}); err != nil {
+		t.Fatalf("Run() error = %v, stderr=%s", err, errOut.String())
+	}
+	got := out.String()
+	if !strings.Contains(got, "\"category\":\"malformed\"") {
+		t.Fatalf("stdout = %q, want the record missing user_id quarantined by the schema stage", got)
+	}
+	if !strings.Contains(got, "\"category\":\"ok\"") {
+		t.Fatalf("stdout = %q, want the valid record to escalate past schema to rules", got)
+	}
+	if !strings.Contains(errOut.String(), "shape:1") || !strings.Contains(errOut.String(), "rules:1") {
+		t.Fatalf("stats = %q, want one decision from each of shape + rules", errOut.String())
+	}
+}
+
+func TestRunConfigRejectsSchemaStageWithoutPath(t *testing.T) {
 	cfg := writeConfig(t, "version: 1\ninput: { type: text }\nstages: [{id: q, type: schema}]\nsink: { type: jsonl, stream: stdout }\n")
 	var out, errOut bytes.Buffer
 	err := Run(context.Background(), []string{"run", "--config", cfg}, Streams{In: strings.NewReader(""), Out: &out, Err: &errOut})
-	if err == nil || !strings.Contains(err.Error(), "not yet runnable") {
-		t.Fatalf("Run() error = %v, want schema-not-runnable", err)
+	if err == nil || !strings.Contains(err.Error(), "schema stage needs a path") {
+		t.Fatalf("Run() error = %v, want schema-needs-a-path", err)
 	}
 }
 
