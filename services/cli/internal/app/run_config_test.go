@@ -38,14 +38,44 @@ func TestRunConfigRejectsSchemaStage(t *testing.T) {
 	}
 }
 
-func TestRunConfigRejectsRoutes(t *testing.T) {
+func TestRunConfigRoutesByCategory(t *testing.T) {
 	dir := t.TempDir()
-	rules := writeFile(t, dir, "rules.yml", "rules:\n  - category: noise\n    contains: [\"healthz\"]\n")
-	cfg := writeFile(t, dir, "cm.yaml", "version: 1\ninput: { type: text }\nstages:\n  - { id: rules, type: rules, path: \""+rules+"\" }\nroutes: { noise: { type: drop } }\nsink: { type: jsonl, stream: stdout }\n")
+	r := writeFile(t, dir, "r.yml", "rules:\n  - category: noise\n    contains: [\"healthz\"]\n  - category: billing\n    regex: [\"payment (failed|declined)\"]\n")
+	noisePath := filepath.Join(dir, "noise.jsonl")
+	cfg := writeFile(t, dir, "cm.yaml", "version: 1\ninput: { type: text }\nstages:\n  - { id: rules, type: rules, path: \""+r+"\" }\nroutes:\n  noise: { type: jsonl, path: \""+noisePath+"\" }\nsink: { type: jsonl, stream: stdout }\n")
+
 	var out, errOut bytes.Buffer
-	err := Run(context.Background(), []string{"run", "--config", cfg}, Streams{In: strings.NewReader(""), Out: &out, Err: &errOut})
-	if err == nil || !strings.Contains(err.Error(), "routes from a config are not yet supported") {
-		t.Fatalf("Run() error = %v, want routes-not-supported", err)
+	in := strings.NewReader("GET /healthz 200\npayment declined order=7\n")
+	if err := Run(context.Background(), []string{"run", "--config", cfg}, Streams{In: in, Out: &out, Err: &errOut}); err != nil {
+		t.Fatalf("Run() error = %v, stderr=%s", err, errOut.String())
+	}
+	noise, _ := os.ReadFile(noisePath)
+	if !strings.Contains(string(noise), "\"category\":\"noise\"") {
+		t.Fatalf("noise file = %q, want the routed noise record", noise)
+	}
+	if strings.Contains(out.String(), "\"category\":\"noise\"") {
+		t.Fatalf("stdout = %q, noise should have been routed to its own sink", out.String())
+	}
+	if !strings.Contains(out.String(), "\"category\":\"billing\"") {
+		t.Fatalf("stdout = %q, want billing on the default sink", out.String())
+	}
+}
+
+func TestRunConfigDropRoute(t *testing.T) {
+	dir := t.TempDir()
+	r := writeFile(t, dir, "r.yml", "rules:\n  - category: noise\n    contains: [\"healthz\"]\n  - category: billing\n    regex: [\"payment (failed|declined)\"]\n")
+	cfg := writeFile(t, dir, "cm.yaml", "version: 1\ninput: { type: text }\nstages:\n  - { id: rules, type: rules, path: \""+r+"\" }\nroutes:\n  noise: { type: drop }\nsink: { type: jsonl, stream: stdout }\n")
+
+	var out, errOut bytes.Buffer
+	in := strings.NewReader("GET /healthz 200\npayment declined order=7\n")
+	if err := Run(context.Background(), []string{"run", "--config", cfg}, Streams{In: in, Out: &out, Err: &errOut}); err != nil {
+		t.Fatalf("Run() error = %v, stderr=%s", err, errOut.String())
+	}
+	if strings.Contains(out.String(), "\"category\":\"noise\"") {
+		t.Fatalf("stdout = %q, noise routed to drop must not appear", out.String())
+	}
+	if !strings.Contains(out.String(), "\"category\":\"billing\"") {
+		t.Fatalf("stdout = %q, want billing", out.String())
 	}
 }
 
@@ -140,6 +170,36 @@ func TestRunConfigRejectsOutputCollision(t *testing.T) {
 	}
 	if data, _ := os.ReadFile(inFile); string(data) != "GET /healthz 200\n" {
 		t.Fatalf("input file was truncated to %q; collision check must run before create", data)
+	}
+}
+
+func TestRunConfigRejectsRouteInputCollision(t *testing.T) {
+	dir := t.TempDir()
+	r := writeFile(t, dir, "r.yml", "rules:\n  - category: noise\n    contains: [\"healthz\"]\n")
+	inFile := writeFile(t, dir, "in.log", "GET /healthz 200\n")
+	cfg := writeFile(t, dir, "cm.yaml", "version: 1\ninput: { type: text }\nstages:\n  - { id: r, type: rules, path: \""+r+"\" }\nroutes:\n  noise: { type: jsonl, path: \""+inFile+"\" }\nsink: { type: jsonl, stream: stdout }\n")
+	var out, errOut bytes.Buffer
+	err := Run(context.Background(), []string{"run", "--config", cfg, inFile}, Streams{In: strings.NewReader(""), Out: &out, Err: &errOut})
+	if err == nil || !strings.Contains(err.Error(), "collides with") {
+		t.Fatalf("Run() error = %v, want a route/input collision error", err)
+	}
+	if data, _ := os.ReadFile(inFile); string(data) != "GET /healthz 200\n" {
+		t.Fatalf("input file was truncated to %q; a route collision must be caught before create", data)
+	}
+}
+
+func TestRunConfigRejectsTwoRoutesSameFile(t *testing.T) {
+	dir := t.TempDir()
+	r := writeFile(t, dir, "r.yml", "rules:\n  - category: noise\n    contains: [\"healthz\"]\n")
+	shared := writeFile(t, dir, "shared.jsonl", "old contents\n")
+	cfg := writeFile(t, dir, "cm.yaml", "version: 1\ninput: { type: text }\nstages:\n  - { id: r, type: rules, path: \""+r+"\" }\nroutes:\n  noise: { type: jsonl, path: \""+shared+"\" }\n  billing: { type: jsonl, path: \""+shared+"\" }\nsink: { type: jsonl, stream: stdout }\n")
+	var out, errOut bytes.Buffer
+	err := Run(context.Background(), []string{"run", "--config", cfg}, Streams{In: strings.NewReader(""), Out: &out, Err: &errOut})
+	if err == nil || !strings.Contains(err.Error(), "more than once") {
+		t.Fatalf("Run() error = %v, want a two-routes-same-file rejection", err)
+	}
+	if data, _ := os.ReadFile(shared); string(data) != "old contents\n" {
+		t.Fatalf("route file was truncated to %q; the collision must be caught before create", data)
 	}
 }
 
