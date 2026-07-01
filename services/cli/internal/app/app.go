@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/ClassMesh/classmesh/shared/pkg/config"
 	"github.com/ClassMesh/classmesh/shared/pkg/engine"
 	"github.com/ClassMesh/classmesh/shared/pkg/sink"
 	"github.com/ClassMesh/classmesh/shared/pkg/sink/jsonl"
@@ -30,7 +31,7 @@ type Streams struct {
 }
 
 // Run executes the CLI: classmesh <command> [flags]. Supported commands:
-// version, run.
+// version, run, validate.
 func Run(ctx context.Context, args []string, s Streams) error {
 	if len(args) == 0 {
 		usage(s.Err)
@@ -42,6 +43,8 @@ func Run(ctx context.Context, args []string, s Streams) error {
 		return nil
 	case "run":
 		return runPipeline(ctx, args[1:], s)
+	case "validate":
+		return runValidate(args[1:], s)
 	default:
 		usage(s.Err)
 		return fmt.Errorf("unknown command %q", args[0])
@@ -53,6 +56,7 @@ func usage(w io.Writer) {
 
 Usage:
   classmesh run --rules rules.yml [--input text|jsonl] [--review review.jsonl] [--min-confidence 0.7] [file ...]
+  classmesh validate --config classmesh.yaml
   classmesh version
 
 run reads records from the given files (or stdin when none), classifies each
@@ -61,6 +65,36 @@ through the rule cascade, and writes one JSON object per line to stdout.
 one JSON object per line into the record's fields. Records no stage can
 classify go to the --review file, or are counted and dropped when --review is
 not set. A summary is printed to stderr.`)
+}
+
+// runValidate parses and validates a cascade config file, reporting the first
+// problem or a one-line confirmation. It does not run anything.
+func runValidate(args []string, s Streams) error {
+	fs := flag.NewFlagSet("validate", flag.ContinueOnError)
+	fs.SetOutput(s.Err)
+	configPath := fs.String("config", "", "path to the cascade config YAML")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return err
+	}
+	if fs.NArg() > 0 {
+		return fmt.Errorf("validate: unexpected argument %q", fs.Arg(0))
+	}
+	if *configPath == "" {
+		return errors.New("validate: --config is required")
+	}
+	data, err := os.ReadFile(*configPath)
+	if err != nil {
+		return fmt.Errorf("validate: %w", err)
+	}
+	cfg, err := config.Parse(data)
+	if err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(s.Out, "config valid: %d stage(s), input %q\n", len(cfg.Stages), cfg.Input.Type)
+	return nil
 }
 
 func runPipeline(ctx context.Context, args []string, s Streams) (err error) {
