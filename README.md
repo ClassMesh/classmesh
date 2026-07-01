@@ -42,30 +42,30 @@ Each classified record is one JSON object on stdout with its category,
 confidence, the matched rule's reason, and (for events) the decoded fields.
 Records no rule matches are counted and reported on stderr.
 
-### Cascade config (preview)
+### Cascade config
 
-A whole multi-stage cascade can be declared in one versioned YAML file. Today
-`validate` parses and checks it; building a runnable cascade from a config is a
-later change.
+A whole multi-stage cascade can be declared in one versioned YAML file, checked
+with `validate` and run with `run --config`:
 
 ```
-classmesh validate --config classmesh.yaml
+classmesh validate --config classmesh.yaml          # parse + validate only
+classmesh run --config classmesh.yaml app.log       # build and run it
 ```
 
 ```yaml
 version: 1
-input:  { type: text }                    # text | jsonl
+input:  { type: text }                      # text | jsonl
 stages:
-  - { id: quarantine, type: schema, gate: 1.0 }
-  - { id: rules, type: rules, path: rules.yml }
-routes:
-  noise: { type: drop }                   # or { type: jsonl, path: noise.jsonl }
-sink:   { type: jsonl, stream: stdout }    # default sink for classified records
+  - { id: rules, type: rules, path: rules.yml, gate: 1.0 }  # gate is optional
+sink:   { type: jsonl, stream: stdout }     # default sink for classified records
 review: { type: jsonl, path: review.jsonl } # optional; the undecided go here
 ```
 
 Unknown keys, duplicate stage ids, out-of-range gates, and unknown stage/sink
-types are rejected before any input is opened.
+types are rejected before any input is opened. `run --config` executes rules
+stages (each honoring its per-stage gate) into the default sink and the review
+sink. A config may also declare `schema` stages and category `routes` — `validate`
+accepts them, but they are not yet runnable from `run`.
 
 ## Performance
 
