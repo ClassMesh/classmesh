@@ -33,6 +33,7 @@ func TestValidate(t *testing.T) {
 			c.Stages = append(c.Stages, config.StageSpec{ID: "rules", Type: "schema"})
 		}, "duplicate stage id"},
 		{"bad stage type", func(c *config.Config) { c.Stages[0].Type = "onnx" }, "is not one of"},
+		{"rules without path", func(c *config.Config) { c.Stages[0].Path = "" }, "needs a path"},
 		{"gate out of range", func(c *config.Config) { c.Stages[0].Gate = &badGate }, "within [0, 1]"},
 		{"bad sink type", func(c *config.Config) { c.Sink.Type = "kafka" }, "sink: type"},
 		{"jsonl sink no target", func(c *config.Config) { c.Sink = config.SinkSpec{Type: "jsonl"} }, "needs a path or a stream"},

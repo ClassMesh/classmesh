@@ -71,5 +71,7 @@ Beyond `--rules`, a cascade can be declared in a versioned YAML config
 per-stage confidence gates, category routes, a default sink, and a review sink.
 The config is parsed strictly — unknown keys are rejected — and validated up
 front, so a malformed pipeline fails before any input is opened; `classmesh
-validate --config <file>` reports the first problem. Constructing a runnable
-engine from a config is a separate step from validating one.
+validate --config <file>` reports the first problem. `classmesh run --config
+<file>` then builds and runs the cascade: today it executes rules stages (each
+honoring its per-stage gate) into the default and review sinks, while schema
+stages and category routes are validated but not yet runnable.

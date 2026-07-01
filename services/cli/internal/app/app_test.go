@@ -196,8 +196,8 @@ func TestRunRequiresRulesFlag(t *testing.T) {
 	var out, errOut bytes.Buffer
 	err := Run(context.Background(), []string{"run"},
 		Streams{In: strings.NewReader(""), Out: &out, Err: &errOut})
-	if err == nil || !strings.Contains(err.Error(), "--rules is required") {
-		t.Fatalf("Run() error = %v, want --rules is required", err)
+	if err == nil || !strings.Contains(err.Error(), "exactly one of --config or --rules") {
+		t.Fatalf("Run() error = %v, want a config-or-rules requirement error", err)
 	}
 }
 

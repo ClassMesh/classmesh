@@ -25,7 +25,7 @@ func TestValidateCommandOK(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run() error = %v, stderr=%s", err, errOut.String())
 	}
-	if !strings.Contains(out.String(), "config valid") {
+	if !strings.Contains(out.String(), "structurally valid") {
 		t.Fatalf("stdout = %q, want a validity confirmation", out.String())
 	}
 }
