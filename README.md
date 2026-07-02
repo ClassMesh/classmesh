@@ -62,13 +62,13 @@ review: { type: jsonl, path: review.jsonl } # optional; the undecided go here
 ```
 
 Unknown keys, duplicate stage ids, out-of-range gates, and unknown stage/sink
-types are rejected before any input is opened. `run --config` executes rules
-stages (each honoring its per-stage gate) into the default sink and the review
-sink. When the config declares category `routes`, classified records are
-dispatched by category — each route to its own sink, or `drop` to discard that
-category — with the default sink as the fallback for unrouted categories. A
-config may also declare `schema` stages, which `validate` accepts but `run`
-does not execute yet.
+types are rejected before any input is opened. `run --config` executes `rules`
+and `schema` stages (each honoring its per-stage gate) into the default sink and
+the review sink; a `rules` stage loads its ruleset and a `schema` stage its
+field constraints from the stage's `path`. When the config declares category
+`routes`, classified records are dispatched by category — each route to its own
+sink, or `drop` to discard that category — with the default sink as the fallback
+for unrouted categories.
 
 ## Performance
 

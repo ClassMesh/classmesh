@@ -20,6 +20,7 @@ import (
 	"github.com/ClassMesh/classmesh/shared/pkg/source/textfile"
 	"github.com/ClassMesh/classmesh/shared/pkg/stage"
 	"github.com/ClassMesh/classmesh/shared/pkg/stage/rules"
+	"github.com/ClassMesh/classmesh/shared/pkg/stage/schema"
 	"github.com/ClassMesh/classmesh/shared/pkg/version"
 )
 
@@ -262,8 +263,8 @@ func openSource(format, path string) (source.Source, error) {
 // buildFromConfig constructs the runnable pieces of a cascade from a config
 // file: the input format, the stages (each wrapped in its per-stage gate), the
 // output sink, and the review sink. When the config declares routes the output
-// is a sink.Router that dispatches by category over the default sink. Non-rules
-// stages are not yet wired from a config.
+// is a sink.Router that dispatches by category over the default sink. Stage
+// types beyond rules and schema are not yet wired from a config.
 func buildFromConfig(path string, s Streams, inputs []string, cleanup *[]func() error) (format string, stages []stage.Stage, out, review sink.Sink, err error) {
 	data, rerr := os.ReadFile(path)
 	if rerr != nil {
@@ -344,7 +345,7 @@ func checkOutputPaths(cfg *config.Config, configPath, base string, inputs []stri
 		}
 		key := normPath(resolve(base, sp.Path))
 		if protected[key] {
-			return fmt.Errorf("run: config output %q collides with an input, config, or rules file", sp.Path)
+			return fmt.Errorf("run: config output %q collides with an input, the config, or a stage declaration file", sp.Path)
 		}
 		if outs[key] {
 			return fmt.Errorf("run: config writes %q more than once", sp.Path)
@@ -384,18 +385,16 @@ func resolve(base, p string) string {
 	return filepath.Join(base, p)
 }
 
-// stagesFromConfig builds each declared stage, wrapping any that carries a gate.
+// stagesFromConfig builds each declared stage, renaming it to its config id and
+// wrapping any that carries a gate.
 func stagesFromConfig(cfg *config.Config, base string) ([]stage.Stage, error) {
 	stages := make([]stage.Stage, 0, len(cfg.Stages))
 	for _, sp := range cfg.Stages {
-		if sp.Type != "rules" {
-			return nil, fmt.Errorf("run: stage %q: type %q is not yet runnable from a config", sp.ID, sp.Type)
+		built, berr := buildStage(sp, base)
+		if berr != nil {
+			return nil, berr
 		}
-		rs, lerr := rules.Load(resolve(base, sp.Path))
-		if lerr != nil {
-			return nil, lerr
-		}
-		var st stage.Stage = stage.WithName(rs, sp.ID)
+		var st stage.Stage = stage.WithName(built, sp.ID)
 		if sp.Gate != nil {
 			g, gerr := stage.NewGate(*sp.Gate)
 			if gerr != nil {
@@ -406,6 +405,19 @@ func stagesFromConfig(cfg *config.Config, base string) ([]stage.Stage, error) {
 		stages = append(stages, st)
 	}
 	return stages, nil
+}
+
+// buildStage constructs one stage from its spec, loading its declaration file
+// relative to the config directory.
+func buildStage(sp config.StageSpec, base string) (stage.Stage, error) {
+	switch sp.Type {
+	case "rules":
+		return rules.Load(resolve(base, sp.Path))
+	case "schema":
+		return schema.Load(resolve(base, sp.Path))
+	default:
+		return nil, fmt.Errorf("run: stage %q: type %q is not yet runnable from a config", sp.ID, sp.Type)
+	}
 }
 
 // openSink builds a sink from a spec, registering any file handle in cleanup. A

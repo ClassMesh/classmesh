@@ -137,8 +137,8 @@ func (c *Config) Validate() error {
 		if !stageTypes[s.Type] {
 			return fmt.Errorf("config: stage %q: type %q is not one of %s", s.ID, s.Type, stageList)
 		}
-		if s.Type == "rules" && s.Path == "" {
-			return fmt.Errorf("config: stage %q: a rules stage needs a path", s.ID)
+		if (s.Type == "rules" || s.Type == "schema") && s.Path == "" {
+			return fmt.Errorf("config: stage %q: a %s stage needs a path", s.ID, s.Type)
 		}
 		if s.Gate != nil {
 			if _, err := stage.NewGate(*s.Gate); err != nil {
