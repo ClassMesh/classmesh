@@ -52,6 +52,47 @@ func TestRunConfigSchemaStageQuarantines(t *testing.T) {
 	}
 }
 
+func TestRunConfigMockStageGateEscalates(t *testing.T) {
+	dir := t.TempDir()
+	m := writeFile(t, dir, "mock.yml", "matchers:\n  - { contains: [\"payment\"], category: billing, confidence: 0.93 }\n  - { contains: [\"debug\"], category: noise, confidence: 0.55 }\n")
+	reviewPath := filepath.Join(dir, "review.jsonl")
+	cfg := writeFile(t, dir, "cm.yaml", "version: 1\ninput: { type: text }\nstages:\n  - { id: scorer, type: mock, path: \""+m+"\", gate: 0.8 }\nsink: { type: jsonl, stream: stdout }\nreview: { type: jsonl, path: \""+reviewPath+"\" }\n")
+
+	var out, errOut bytes.Buffer
+	in := strings.NewReader("payment declined order=7\ndebug cache warm\n")
+	if err := Run(context.Background(), []string{"run", "--config", cfg}, Streams{In: in, Out: &out, Err: &errOut}); err != nil {
+		t.Fatalf("Run() error = %v, stderr=%s", err, errOut.String())
+	}
+	got := out.String()
+	if !strings.Contains(got, "\"category\":\"billing\"") || !strings.Contains(got, "\"confidence\":0.93") || !strings.Contains(got, "\"stage\":\"scorer\"") {
+		t.Fatalf("stdout = %q, want billing at 0.93 decided by scorer", got)
+	}
+	if strings.Contains(got, "noise") {
+		t.Fatalf("stdout = %q, the 0.55 decision is below the 0.8 gate and must not pass", got)
+	}
+	review, _ := os.ReadFile(reviewPath)
+	if !strings.Contains(string(review), "debug cache warm") {
+		t.Fatalf("review = %q, want the below-gate record", review)
+	}
+	if !strings.Contains(errOut.String(), "processed=2 classified=1 review=1") {
+		t.Fatalf("stats = %q, want processed=2 classified=1 review=1", errOut.String())
+	}
+}
+
+func TestRunConfigRejectsSinkOverMockDeclaration(t *testing.T) {
+	dir := t.TempDir()
+	m := writeFile(t, dir, "mock.yml", "default: { category: c, confidence: 0.5 }\n")
+	cfg := writeFile(t, dir, "cm.yaml", "version: 1\ninput: { type: text }\nstages:\n  - { id: scorer, type: mock, path: \""+m+"\" }\nsink: { type: jsonl, path: \""+m+"\" }\n")
+	var out, errOut bytes.Buffer
+	err := Run(context.Background(), []string{"run", "--config", cfg}, Streams{In: strings.NewReader(""), Out: &out, Err: &errOut})
+	if err == nil || !strings.Contains(err.Error(), "collides with") {
+		t.Fatalf("Run() error = %v, want a sink/declaration collision error", err)
+	}
+	if data, _ := os.ReadFile(m); string(data) != "default: { category: c, confidence: 0.5 }\n" {
+		t.Fatalf("mock declaration was truncated to %q; the collision must be caught before create", data)
+	}
+}
+
 func TestRunConfigRejectsSchemaStageWithoutPath(t *testing.T) {
 	cfg := writeConfig(t, "version: 1\ninput: { type: text }\nstages: [{id: q, type: schema}]\nsink: { type: jsonl, stream: stdout }\n")
 	var out, errOut bytes.Buffer

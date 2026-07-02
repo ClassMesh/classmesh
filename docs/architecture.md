@@ -72,8 +72,11 @@ per-stage confidence gates, category routes, a default sink, and a review sink.
 The config is parsed strictly — unknown keys are rejected — and validated up
 front, so a malformed pipeline fails before any input is opened; `classmesh
 validate --config <file>` reports the first problem. `classmesh run --config
-<file>` then builds and runs the cascade: it executes `rules` and `schema` stages
-(each honoring its per-stage gate, each loading its declaration from the stage's
-`path`) into the default and review sinks, and when the config declares category
-routes it dispatches classified records by category (each route to its own sink,
-or `drop`) with the default sink as the fallback.
+<file>` then builds and runs the cascade: it executes `rules`, `schema`, and
+`mock` stages (each honoring its per-stage gate, each loading its declaration
+from the stage's `path`) into the default and review sinks, and when the config
+declares category routes it dispatches classified records by category (each
+route to its own sink, or `drop`) with the default sink as the fallback. The
+mock stage is a deterministic model stand-in emitting declared sub-1.0
+confidences, so gate escalation and review routing are exercisable end to end
+before the model tier lands.

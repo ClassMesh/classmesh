@@ -19,6 +19,7 @@ import (
 	jsonlsource "github.com/ClassMesh/classmesh/shared/pkg/source/jsonl"
 	"github.com/ClassMesh/classmesh/shared/pkg/source/textfile"
 	"github.com/ClassMesh/classmesh/shared/pkg/stage"
+	"github.com/ClassMesh/classmesh/shared/pkg/stage/mock"
 	"github.com/ClassMesh/classmesh/shared/pkg/stage/rules"
 	"github.com/ClassMesh/classmesh/shared/pkg/stage/schema"
 	"github.com/ClassMesh/classmesh/shared/pkg/version"
@@ -264,7 +265,7 @@ func openSource(format, path string) (source.Source, error) {
 // file: the input format, the stages (each wrapped in its per-stage gate), the
 // output sink, and the review sink. When the config declares routes the output
 // is a sink.Router that dispatches by category over the default sink. Stage
-// types beyond rules and schema are not yet wired from a config.
+// types beyond rules, schema, and mock are not yet wired from a config.
 func buildFromConfig(path string, s Streams, inputs []string, cleanup *[]func() error) (format string, stages []stage.Stage, out, review sink.Sink, err error) {
 	data, rerr := os.ReadFile(path)
 	if rerr != nil {
@@ -415,6 +416,8 @@ func buildStage(sp config.StageSpec, base string) (stage.Stage, error) {
 		return rules.Load(resolve(base, sp.Path))
 	case "schema":
 		return schema.Load(resolve(base, sp.Path))
+	case "mock":
+		return mock.Load(resolve(base, sp.Path))
 	default:
 		return nil, fmt.Errorf("run: stage %q: type %q is not yet runnable from a config", sp.ID, sp.Type)
 	}
