@@ -62,10 +62,12 @@ review: { type: jsonl, path: review.jsonl } # optional; the undecided go here
 ```
 
 Unknown keys, duplicate stage ids, out-of-range gates, and unknown stage/sink
-types are rejected before any input is opened. `run --config` executes `rules`
-and `schema` stages (each honoring its per-stage gate) into the default sink and
-the review sink; a `rules` stage loads its ruleset and a `schema` stage its
-field constraints from the stage's `path`. When the config declares category
+types are rejected before any input is opened. `run --config` executes `rules`,
+`schema`, and `mock` stages (each honoring its per-stage gate) into the default
+sink and the review sink; every stage loads its declaration from the stage's
+`path`. The `mock` stage is a deterministic model stand-in that scores matched
+records with declared confidences below 1.0, so per-stage gates and review
+routing can be exercised before a real model stage exists. When the config declares category
 `routes`, classified records are dispatched by category — each route to its own
 sink, or `drop` to discard that category — with the default sink as the fallback
 for unrouted categories.

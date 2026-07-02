@@ -36,7 +36,7 @@ type Input struct {
 // StageSpec is one stage in the cascade.
 type StageSpec struct {
 	ID   string   `yaml:"id"`
-	Type string   `yaml:"type"`           // rules | schema
+	Type string   `yaml:"type"`           // rules | schema | mock
 	Path string   `yaml:"path,omitempty"` // type-specific config file
 	Gate *float64 `yaml:"gate,omitempty"` // per-stage confidence gate in [0, 1]
 }
@@ -50,14 +50,14 @@ type SinkSpec struct {
 
 var (
 	inputTypes = map[string]bool{"text": true, "jsonl": true}
-	stageTypes = map[string]bool{"rules": true, "schema": true}
+	stageTypes = map[string]bool{"rules": true, "schema": true, "mock": true}
 	sinkTypes  = map[string]bool{"jsonl": true, "drop": true}
 	streams    = map[string]bool{"stdout": true}
 )
 
 const (
 	inputList  = "text, jsonl"
-	stageList  = "rules, schema"
+	stageList  = "rules, schema, mock"
 	sinkList   = "jsonl, drop"
 	streamList = "stdout"
 )
@@ -137,7 +137,7 @@ func (c *Config) Validate() error {
 		if !stageTypes[s.Type] {
 			return fmt.Errorf("config: stage %q: type %q is not one of %s", s.ID, s.Type, stageList)
 		}
-		if (s.Type == "rules" || s.Type == "schema") && s.Path == "" {
+		if s.Path == "" {
 			return fmt.Errorf("config: stage %q: a %s stage needs a path", s.ID, s.Type)
 		}
 		if s.Gate != nil {
