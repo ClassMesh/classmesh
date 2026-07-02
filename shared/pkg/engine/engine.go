@@ -113,7 +113,11 @@ func (e *Engine) Run(ctx context.Context) (Stats, error) {
 		if name == "" {
 			stats.Reviewed++
 			if e.review == nil {
-				e.logger.Warn("record unclassified and dropped", "record", r.ID)
+				if stats.Reviewed == 1 {
+					e.logger.Warn("records unclassified and dropped; logging the first, see stats for the total", "record", r.ID)
+				} else if e.logger.Enabled(ctx, slog.LevelDebug) {
+					e.logger.Debug("record unclassified and dropped", "record", r.ID)
+				}
 				continue
 			}
 			if err := e.review.Write(ctx, r, domain.Classification{}); err != nil {
