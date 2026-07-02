@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -115,6 +116,30 @@ func TestRunWithoutReviewSinkDropsUnclassified(t *testing.T) {
 	}
 	if stats.Processed != 1 || stats.Classified != 0 || stats.Reviewed != 1 {
 		t.Fatalf("stats = %+v, want Processed=1 Classified=0 Reviewed=1", stats)
+	}
+}
+
+func TestRunWarnsOnceForManyDrops(t *testing.T) {
+	var logBuf bytes.Buffer
+	src := source.NewInMemory(records("garbage one", "garbage two", "garbage three"))
+	e, err := New(Deps{
+		Source: src,
+		Stages: []stage.Stage{stage.NewStatic("rules", nil)},
+		Sink:   sink.NewInMemory(),
+		Logger: slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelWarn})),
+	})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	stats, err := e.Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if stats.Reviewed != 3 {
+		t.Fatalf("stats = %+v, want Reviewed=3", stats)
+	}
+	if n := strings.Count(logBuf.String(), "unclassified"); n != 1 {
+		t.Fatalf("warn logged %d times, want exactly once for the whole run:\n%s", n, logBuf.String())
 	}
 }
 
