@@ -142,6 +142,9 @@ func TestWriteMatchesEncodingJSON(t *testing.T) {
 		{"smallest nonzero", domain.Record{ID: "x", Data: []byte("d")}, domain.Classification{Category: "x", Confidence: math.SmallestNonzeroFloat64}},
 		{"every control byte plus DEL", domain.Record{ID: "x", Data: controlBytes()}, domain.Classification{Category: "x", Confidence: 1}},
 		{"empty but non-nil maps are omitted", domain.Record{ID: "x", Data: []byte("d"), Fields: map[string]any{}, Meta: map[string]string{}}, domain.Classification{Category: "x", Confidence: 1}},
+		{"confidence exactly zero", domain.Record{ID: "x", Data: []byte("d")}, domain.Classification{Category: "x", Confidence: 0}},
+		{"confidence exactly one fast path pin", domain.Record{ID: "x", Data: []byte("d")}, domain.Classification{Category: "x", Confidence: 1}},
+		{"negative zero confidence", domain.Record{ID: "x", Data: []byte("d")}, domain.Classification{Category: "x", Confidence: math.Copysign(0, -1)}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
