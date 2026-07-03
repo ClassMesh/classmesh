@@ -17,6 +17,10 @@ import (
 	"github.com/ClassMesh/classmesh/shared/pkg/stage"
 )
 
+// chunkSize is how many contiguous records a worker claims per atomic step —
+// coarse enough that the shared counter and result slots stop contending.
+const chunkSize = 64
+
 // Deps bundles what a Classifier needs.
 type Deps struct {
 	// Stages is the cascade, cheapest first. At least one is required.
@@ -96,23 +100,30 @@ func (c *Classifier) ClassifyBatchConcurrent(ctx context.Context, records []doma
 	if workers < 2 || len(records) < 2 {
 		return c.ClassifyBatch(ctx, records)
 	}
-	if workers > len(records) {
-		workers = len(records)
+	chunks := (len(records) + chunkSize - 1) / chunkSize
+	if workers > chunks {
+		workers = chunks
 	}
 	results := make([]Result, len(records))
-	var next int64 = -1
+	var nextChunk int64 = -1
 	var wg sync.WaitGroup
 	wg.Add(workers)
 	for w := 0; w < workers; w++ {
 		go func() {
 			defer wg.Done()
 			for {
-				i := int(atomic.AddInt64(&next, 1))
-				if i >= len(records) {
+				start := int(atomic.AddInt64(&nextChunk, 1)) * chunkSize
+				if start >= len(records) {
 					return
 				}
-				cl, err := c.Classify(ctx, records[i])
-				results[i] = Result{Classification: cl, Err: err}
+				end := start + chunkSize
+				if end > len(records) {
+					end = len(records)
+				}
+				for i := start; i < end; i++ {
+					cl, err := c.Classify(ctx, records[i])
+					results[i] = Result{Classification: cl, Err: err}
+				}
 			}
 		}()
 	}
