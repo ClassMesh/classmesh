@@ -58,7 +58,7 @@ func usage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, `classmesh — classification cascade pipeline
 
 Usage:
-  classmesh run --rules rules.yml [--input text|jsonl] [--review review.jsonl] [--min-confidence 0.7] [file ...]
+  classmesh run --rules rules.yml [--input text|jsonl] [--review review.jsonl] [--min-confidence 0.7] [--workers N] [file ...]
   classmesh run --config classmesh.yaml [file ...]
   classmesh validate --config classmesh.yaml
   classmesh version
@@ -113,6 +113,7 @@ func runPipeline(ctx context.Context, args []string, s Streams) (err error) {
 	input := fs.String("input", "text", "input format: text (one record per line) or jsonl (one JSON object per line)")
 	reviewPath := fs.String("review", "", "write unclassified records to this JSONL file")
 	minConfidence := fs.Float64("min-confidence", 0, "classifications below this confidence escalate to the next stage (0 disables)")
+	workers := fs.Int("workers", 0, "concurrent classification workers; 0 or 1 runs serially")
 	if perr := fs.Parse(args); perr != nil {
 		if errors.Is(perr, flag.ErrHelp) {
 			return nil
@@ -127,7 +128,7 @@ func runPipeline(ctx context.Context, args []string, s Streams) (err error) {
 			configSet = true
 		case "rules":
 			rulesSet = true
-		case "input", "review", "min-confidence":
+		case "input", "review", "min-confidence", "workers":
 			conflict = f.Name
 		}
 	})
@@ -151,15 +152,16 @@ func runPipeline(ctx context.Context, args []string, s Streams) (err error) {
 	}()
 
 	var (
-		format string
-		stages []stage.Stage
-		out    sink.Sink
-		review sink.Sink
-		gate   float64
+		format   string
+		stages   []stage.Stage
+		out      sink.Sink
+		review   sink.Sink
+		gate     float64
+		nWorkers int
 	)
 
 	if configSet {
-		format, stages, out, review, err = buildFromConfig(*configPath, s, inputs, &cleanup)
+		format, stages, out, review, nWorkers, err = buildFromConfig(*configPath, s, inputs, &cleanup)
 		if err != nil {
 			return err
 		}
@@ -177,7 +179,7 @@ func runPipeline(ctx context.Context, args []string, s Streams) (err error) {
 		if lerr != nil {
 			return lerr
 		}
-		stages, format, gate = []stage.Stage{ruleStage}, *input, *minConfidence
+		stages, format, gate, nWorkers = []stage.Stage{ruleStage}, *input, *minConfidence, *workers
 		o := jsonl.New(s.Out)
 		cleanup = append(cleanup, func() error {
 			if cerr := o.Close(); cerr != nil {
@@ -214,7 +216,7 @@ func runPipeline(ctx context.Context, args []string, s Streams) (err error) {
 
 	total := engine.Stats{ByStage: make(map[string]int)}
 	if len(inputs) == 0 {
-		stats, rerr := runOne(ctx, newSource(format, s.In, "stdin"), stages, out, review, logger, gate)
+		stats, rerr := runOne(ctx, newSource(format, s.In, "stdin"), stages, out, review, logger, gate, nWorkers)
 		merge(&total, stats)
 		if rerr != nil {
 			return rerr
@@ -225,7 +227,7 @@ func runPipeline(ctx context.Context, args []string, s Streams) (err error) {
 		if oerr != nil {
 			return oerr
 		}
-		stats, rerr := runOne(ctx, src, stages, out, review, logger, gate)
+		stats, rerr := runOne(ctx, src, stages, out, review, logger, gate, nWorkers)
 		merge(&total, stats)
 		if rerr != nil {
 			return rerr
@@ -266,29 +268,29 @@ func openSource(format, path string) (source.Source, error) {
 // output sink, and the review sink. When the config declares routes the output
 // is a sink.Router that dispatches by category over the default sink. Stage
 // types beyond rules, schema, and mock are not yet wired from a config.
-func buildFromConfig(path string, s Streams, inputs []string, cleanup *[]func() error) (format string, stages []stage.Stage, out, review sink.Sink, err error) {
+func buildFromConfig(path string, s Streams, inputs []string, cleanup *[]func() error) (format string, stages []stage.Stage, out, review sink.Sink, workers int, err error) {
 	data, rerr := os.ReadFile(path)
 	if rerr != nil {
-		return "", nil, nil, nil, fmt.Errorf("run: %w", rerr)
+		return "", nil, nil, nil, 0, fmt.Errorf("run: %w", rerr)
 	}
 	cfg, perr := config.Parse(data)
 	if perr != nil {
-		return "", nil, nil, nil, perr
+		return "", nil, nil, nil, 0, perr
 	}
 	base := filepath.Dir(path)
 	if cerr := checkOutputPaths(cfg, path, base, inputs); cerr != nil {
-		return "", nil, nil, nil, cerr
+		return "", nil, nil, nil, 0, cerr
 	}
 	stages, serr := stagesFromConfig(cfg, base)
 	if serr != nil {
-		return "", nil, nil, nil, serr
+		return "", nil, nil, nil, 0, serr
 	}
 	fallback, oerr := openSink(cfg.Sink, base, s, cleanup)
 	if oerr != nil {
-		return "", nil, nil, nil, fmt.Errorf("run: default sink: %w", oerr)
+		return "", nil, nil, nil, 0, fmt.Errorf("run: default sink: %w", oerr)
 	}
 	if fallback == nil {
-		return "", nil, nil, nil, errors.New("run: the default sink cannot be drop")
+		return "", nil, nil, nil, 0, errors.New("run: the default sink cannot be drop")
 	}
 	out = fallback
 	if len(cfg.Routes) > 0 {
@@ -296,7 +298,7 @@ func buildFromConfig(path string, s Streams, inputs []string, cleanup *[]func() 
 		for category, spec := range cfg.Routes {
 			rs, rerr := openSink(spec, base, s, cleanup)
 			if rerr != nil {
-				return "", nil, nil, nil, fmt.Errorf("run: route %q: %w", category, rerr)
+				return "", nil, nil, nil, 0, fmt.Errorf("run: route %q: %w", category, rerr)
 			}
 			routes[category] = rs
 		}
@@ -305,10 +307,10 @@ func buildFromConfig(path string, s Streams, inputs []string, cleanup *[]func() 
 	if cfg.Review != nil {
 		review, oerr = openSink(*cfg.Review, base, s, cleanup)
 		if oerr != nil {
-			return "", nil, nil, nil, fmt.Errorf("run: review sink: %w", oerr)
+			return "", nil, nil, nil, 0, fmt.Errorf("run: review sink: %w", oerr)
 		}
 	}
-	return cfg.Input.Type, stages, out, review, nil
+	return cfg.Input.Type, stages, out, review, cfg.Workers, nil
 }
 
 // checkOutputPaths rejects a config whose file sinks collide with an input file
@@ -443,7 +445,7 @@ func openSink(spec config.SinkSpec, base string, s Streams, cleanup *[]func() er
 	return js, nil
 }
 
-func runOne(ctx context.Context, src source.Source, stages []stage.Stage, out, review sink.Sink, logger *slog.Logger, minConfidence float64) (engine.Stats, error) {
+func runOne(ctx context.Context, src source.Source, stages []stage.Stage, out, review sink.Sink, logger *slog.Logger, minConfidence float64, workers int) (engine.Stats, error) {
 	defer func() { _ = src.Close() }()
 	done := make(chan struct{})
 	defer close(done)
@@ -461,6 +463,7 @@ func runOne(ctx context.Context, src source.Source, stages []stage.Stage, out, r
 		Review:        review,
 		Logger:        logger,
 		MinConfidence: minConfidence,
+		Workers:       workers,
 	})
 	if err != nil {
 		return engine.Stats{}, err
