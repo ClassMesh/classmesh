@@ -35,6 +35,11 @@ type Deps struct {
 	// next stage. Zero disables gating. Deterministic stages emit 1, so
 	// they always pass.
 	MinConfidence float64
+	// Workers is how many goroutines classify at once. Zero or one keeps
+	// the serial loop. More requires stages safe for concurrent Classify,
+	// and the engine closes the Source when a failure ends the run early.
+	// Order, errors, and Stats match the serial loop exactly.
+	Workers int
 }
 
 // Stats summarizes one Run.
@@ -52,12 +57,13 @@ type Stats struct {
 
 // Engine drives records through the cascade.
 type Engine struct {
-	source source.Source
-	stages []stage.Stage
-	sink   sink.Sink
-	review sink.Sink
-	logger *slog.Logger
-	gate   stage.Gate
+	source  source.Source
+	stages  []stage.Stage
+	sink    sink.Sink
+	review  sink.Sink
+	logger  *slog.Logger
+	gate    stage.Gate
+	workers int
 }
 
 // New validates deps and returns a ready Engine.
@@ -78,16 +84,20 @@ func New(d Deps) (*Engine, error) {
 	if err != nil {
 		return nil, fmt.Errorf("engine: %w", err)
 	}
+	if d.Workers < 0 {
+		return nil, errors.New("engine: workers must not be negative")
+	}
 	if d.Logger == nil {
 		d.Logger = slog.Default()
 	}
 	return &Engine{
-		source: d.Source,
-		stages: append([]stage.Stage(nil), d.Stages...),
-		sink:   d.Sink,
-		review: d.Review,
-		logger: d.Logger,
-		gate:   gate,
+		source:  d.Source,
+		stages:  append([]stage.Stage(nil), d.Stages...),
+		sink:    d.Sink,
+		review:  d.Review,
+		logger:  d.Logger,
+		gate:    gate,
+		workers: d.Workers,
 	}, nil
 }
 
@@ -95,6 +105,9 @@ func New(d Deps) (*Engine, error) {
 // drained, the context is cancelled, or a source, stage, or sink fails.
 // Stats reflect everything processed up to the point of return.
 func (e *Engine) Run(ctx context.Context) (Stats, error) {
+	if e.workers > 1 {
+		return e.runParallel(ctx)
+	}
 	stats := Stats{ByStage: make(map[string]int)}
 	for {
 		r, err := e.source.Next(ctx)

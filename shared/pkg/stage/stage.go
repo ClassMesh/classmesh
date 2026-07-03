@@ -21,6 +21,7 @@ type Stage interface {
 	// Name identifies the stage in classifications, logs, and metrics.
 	Name() string
 	// Classify assigns a category to the record, or returns
-	// ErrUnclassified when this stage cannot decide.
+	// ErrUnclassified when this stage cannot decide. It must not mutate
+	// the record, which a concurrent engine shares with later consumers.
 	Classify(ctx context.Context, r domain.Record) (domain.Classification, error)
 }

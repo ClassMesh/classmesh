@@ -81,3 +81,8 @@ route to its own sink, or `drop`) with the default sink as the fallback. The
 mock stage is a deterministic model stand-in emitting declared sub-1.0
 confidences, so gate escalation and review routing are exercisable end to end
 before the model tier lands.
+
+With `workers: N` the engine classifies concurrently — one reader, N workers,
+one ordered writer gated by admission credits — so output order, deterministic
+error selection, and stats stay identical to the serial loop. Stages must be
+safe for concurrent Classify (all built-ins are).
