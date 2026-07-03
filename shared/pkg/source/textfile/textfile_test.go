@@ -39,12 +39,13 @@ func TestCloseUnblocksBlockedNext(t *testing.T) {
 	}
 }
 
-func TestNewYieldsLinesWithMetadata(t *testing.T) {
+func TestNewYieldsLinesWithProvenanceIDs(t *testing.T) {
 	s := New(strings.NewReader("alpha\n\ngamma"), "test-stream")
 	t.Cleanup(func() { _ = s.Close() })
 
 	ctx := context.Background()
 	want := []string{"alpha", "", "gamma"}
+	ids := make([]string, 0, len(want))
 	for i, payload := range want {
 		r, err := s.Next(ctx)
 		if err != nil {
@@ -56,12 +57,14 @@ func TestNewYieldsLinesWithMetadata(t *testing.T) {
 		if r.Kind != domain.KindText {
 			t.Fatalf("Next() #%d kind = %q, want %q", i+1, r.Kind, domain.KindText)
 		}
-		wantLine := []string{"1", "2", "3"}[i]
-		if r.Meta["line"] != wantLine || r.Meta["source"] != "test-stream" {
-			t.Fatalf("Next() #%d meta = %v, want line=%s source=test-stream", i+1, r.Meta, wantLine)
+		if r.Meta != nil {
+			t.Fatalf("Next() #%d Meta = %v, want nil (provenance lives in the ID)", i+1, r.Meta)
 		}
-		if r.ID != "test-stream:"+wantLine {
-			t.Fatalf("Next() #%d ID = %q, want %q", i+1, r.ID, "test-stream:"+wantLine)
+		ids = append(ids, r.ID)
+	}
+	for i, wantLine := range []string{"1", "2", "3"} {
+		if ids[i] != "test-stream:"+wantLine {
+			t.Fatalf("ID #%d = %q after later Next calls, want %q (IDs must not alias the scratch buffer)", i+1, ids[i], "test-stream:"+wantLine)
 		}
 	}
 	if _, err := s.Next(ctx); !errors.Is(err, source.ErrDrained) {
@@ -86,8 +89,8 @@ func TestOpenReadsFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Next() error = %v", err)
 	}
-	if string(r.Data) != "GET /healthz 200" || r.Meta["source"] != path {
-		t.Fatalf("Next() = %q meta=%v, want first line with source=%s", r.Data, r.Meta, path)
+	if string(r.Data) != "GET /healthz 200" || r.ID != path+":1" {
+		t.Fatalf("Next() = %q id=%q, want first line with id %s:1", r.Data, r.ID, path)
 	}
 	if _, err := s.Next(ctx); err != nil {
 		t.Fatalf("Next() #2 error = %v", err)
