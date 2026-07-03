@@ -22,7 +22,8 @@ envelope, deliberately payload-agnostic:
   JSON document or an event tomorrow.
 - `Fields` holds structured attributes a source decoded from the payload (a
   JSON object, say), or is nil for unstructured payloads.
-- `Meta` carries source-specific context such as a file name or line number.
+- `Meta` carries optional source-specific context. The built-in sources leave
+  it empty — a record's provenance (source name and line) lives in its `ID`.
 
 The core packages never inspect `Data` as a log line. They move records,
 classify them, and emit results. What the bytes mean is the concern of a stage,
