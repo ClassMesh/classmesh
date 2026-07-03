@@ -54,6 +54,11 @@ func TestParse(t *testing.T) {
 			map[string]any{"timestamp": "2026-06-25T07:53:07Z", "level": "debug"},
 		},
 		{
+			"non-ASCII uppercase level",
+			"İNFO request done",
+			map[string]any{"level": "info"},
+		},
+		{
 			"unstructured line yields nil",
 			"just some random text here",
 			nil,

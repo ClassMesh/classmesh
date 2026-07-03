@@ -47,7 +47,8 @@ type Encoding struct {
 // Parse, or Load; it is read-only and safe for concurrent use after
 // construction.
 type Tokenizer struct {
-	vocab map[string]int32
+	vocab  map[string]int32
+	tokens []string // ID→token reverse table, or nil when reverseVocab declines
 
 	unk, cls, sep       string
 	unkID, clsID, sepID int32
@@ -85,11 +86,16 @@ func New(vocab map[string]int32, opts ...Option) (*Tokenizer, error) {
 		return nil, errors.New("wordpiece: vocab is empty")
 	}
 	owned := make(map[string]int32, len(vocab))
+	var maxID int32
 	for tok, id := range vocab {
 		owned[tok] = id
+		if id > maxID {
+			maxID = id
+		}
 	}
 	t := &Tokenizer{
 		vocab:      owned,
+		tokens:     reverseVocab(owned, maxID),
 		unk:        DefaultUnknown,
 		cls:        DefaultClassify,
 		sep:        DefaultSeparator,
@@ -148,12 +154,33 @@ func Load(path string, opts ...Option) (*Tokenizer, error) {
 	return Parse(f, opts...)
 }
 
+// reverseVocab builds an ID→token table so subword matches reuse interned
+// strings. Negative, sparse, or colliding IDs and empty tokens return nil —
+// callers fall back to constructing the string, which is always safe.
+func reverseVocab(vocab map[string]int32, maxID int32) []string {
+	if maxID < 0 || int64(maxID)+1 > int64(2*len(vocab)) {
+		return nil
+	}
+	rev := make([]string, maxID+1)
+	for tok, id := range vocab {
+		if id < 0 || tok == "" || rev[id] != "" {
+			return nil
+		}
+		rev[id] = tok
+	}
+	return rev
+}
+
 // Encode tokenizes text into model-ready IDs, wrapping the subword pieces with
-// [CLS] and [SEP] and truncating to MaxLen when set.
+// [CLS] and [SEP] and truncating to MaxLen when set. The returned IDs, Mask,
+// and TypeIDs share one backing array, each capped to its own segment so the
+// appends below cannot cross into a neighbour.
 func (t *Tokenizer) Encode(text string) Encoding {
-	var pieces []string
-	var buf []byte
-	for _, word := range t.basicTokenize(text) {
+	words := t.basicTokenize(text)
+	var pieceScratch [32]string
+	var bufScratch [128]byte
+	pieces, buf := pieceScratch[:0], bufScratch[:0]
+	for _, word := range words {
 		pieces, buf = t.wordpiece(pieces, buf, word)
 	}
 	if t.maxLen > 0 && len(pieces) > t.maxLen-2 {
@@ -161,10 +188,11 @@ func (t *Tokenizer) Encode(text string) Encoding {
 	}
 
 	n := len(pieces) + 2
+	ints := make([]int32, 3*n)
 	enc := Encoding{
-		IDs:     make([]int32, 0, n),
-		Mask:    make([]int32, 0, n),
-		TypeIDs: make([]int32, 0, n),
+		IDs:     ints[0:0:n],
+		Mask:    ints[n : n : 2*n],
+		TypeIDs: ints[2*n : 2*n : 3*n],
 		Tokens:  make([]string, 0, n),
 	}
 	add := func(tok string, id int32) {
@@ -183,16 +211,28 @@ func (t *Tokenizer) Encode(text string) Encoding {
 
 // basicTokenize cleans and splits text into whitespace-delimited words,
 // isolating punctuation and CJK characters and, when configured, lowercasing
-// and stripping accents. It mirrors BERT's BasicTokenizer.
+// and stripping accents. It mirrors BERT's BasicTokenizer. cleanAndSpaceCJK
+// has already collapsed every whitespace run to a single ASCII space, so words
+// are the runs between spaces.
 func (t *Tokenizer) basicTokenize(text string) []string {
-	text = cleanText(text)
-	text = spaceCJK(text)
-	var out []string
-	for _, word := range strings.Fields(text) {
-		if t.lower {
-			word = stripAccents(strings.ToLower(word))
+	text = cleanAndSpaceCJK(text)
+	out := make([]string, 0, strings.Count(text, " ")+1)
+	start := 0
+	for i := 0; i <= len(text); i++ {
+		if i < len(text) && text[i] != ' ' {
+			continue
 		}
-		out = append(out, splitOnPunctuation(word)...)
+		if start < i {
+			word := text[start:i]
+			if t.lower {
+				word = stripAccents(strings.ToLower(word))
+			}
+			out = appendPunctuationSplit(out, word)
+		}
+		start = i + 1
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }
@@ -214,18 +254,26 @@ func (t *Tokenizer) wordpiece(dst []string, buf []byte, word string) ([]string, 
 		end := len(word)
 		match, matchEnd := "", -1
 		for start < end {
+			var id int32
+			var ok bool
 			if start == 0 {
-				if _, ok := t.vocab[word[start:end]]; ok {
-					match, matchEnd = word[start:end], end
-					break
-				}
+				id, ok = t.vocab[word[start:end]]
 			} else {
 				buf = append(buf[:0], "##"...)
 				buf = append(buf, word[start:end]...)
-				if _, ok := t.vocab[string(buf)]; ok {
-					match, matchEnd = string(buf), end
-					break
+				id, ok = t.vocab[string(buf)]
+			}
+			if ok {
+				switch {
+				case t.tokens != nil:
+					match = t.tokens[id]
+				case start == 0:
+					match = word[start:end]
+				default:
+					match = string(buf)
 				}
+				matchEnd = end
+				break
 			}
 			_, size := utf8.DecodeLastRuneInString(word[start:end])
 			end -= size
@@ -239,80 +287,98 @@ func (t *Tokenizer) wordpiece(dst []string, buf []byte, word string) ([]string, 
 	return dst, buf
 }
 
-// cleanText drops control characters and replacement runes and collapses every
-// kind of whitespace to a plain space.
-func cleanText(s string) string {
+// cleanAndSpaceCJK folds BERT's cleanup and CJK-spacing passes into one:
+// controls and replacement runes drop, every unicode.IsSpace rune becomes a
+// plain space (preserving strings.Fields split semantics), and CJK ideographs
+// are space-padded into standalone tokens.
+func cleanAndSpaceCJK(s string) string {
+	simple := true
+	for _, r := range s {
+		if r == 0 || r == 0xFFFD || isControl(r) || (isWhitespace(r) && r != ' ') ||
+			(r >= utf8.RuneSelf && unicode.IsSpace(r)) || isCJK(r) {
+			simple = false
+			break
+		}
+	}
+	if simple {
+		return s
+	}
 	var b strings.Builder
 	b.Grow(len(s))
 	for _, r := range s {
-		if r == 0 || r == 0xFFFD || isControl(r) {
+		switch {
+		case r == 0 || r == 0xFFFD || isControl(r):
 			continue
-		}
-		if isWhitespace(r) {
+		case isWhitespace(r) || (r >= utf8.RuneSelf && unicode.IsSpace(r)):
 			b.WriteByte(' ')
-		} else {
+		case isCJK(r):
+			b.WriteByte(' ')
+			b.WriteRune(r)
+			b.WriteByte(' ')
+		default:
 			b.WriteRune(r)
 		}
 	}
 	return b.String()
 }
 
-// spaceCJK pads CJK ideographs with spaces so each becomes its own token.
-func spaceCJK(s string) string {
-	var b strings.Builder
-	b.Grow(len(s))
-	for _, r := range s {
-		if isCJK(r) {
-			b.WriteByte(' ')
-			b.WriteRune(r)
-			b.WriteByte(' ')
-		} else {
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
-
-// stripAccents removes combining marks after NFD decomposition.
+// stripAccents removes combining marks after NFD decomposition. Pure-ASCII
+// input has no combining marks and is unchanged by NFD, so it is returned as
+// is without normalizing.
 func stripAccents(s string) string {
-	d := norm.NFD.String(s)
-	var b strings.Builder
-	b.Grow(len(d))
-	for _, r := range d {
-		if unicode.Is(unicode.Mn, r) {
-			continue
-		}
-		b.WriteRune(r)
+	if isASCII(s) {
+		return s
 	}
-	return b.String()
+	var normScratch, outScratch [128]byte
+	d := norm.NFD.AppendString(normScratch[:0], s)
+	out := outScratch[:0]
+	for i := 0; i < len(d); {
+		r, size := utf8.DecodeRune(d[i:])
+		if !unicode.Is(unicode.Mn, r) {
+			out = append(out, d[i:i+size]...)
+		}
+		i += size
+	}
+	return string(out)
 }
 
-// splitOnPunctuation breaks a word so each punctuation rune is its own token.
-func splitOnPunctuation(s string) []string {
-	var out []string
-	var cur []rune
-	flush := func() {
-		if len(cur) > 0 {
-			out = append(out, string(cur))
-			cur = cur[:0]
-		}
-	}
-	for _, r := range s {
+// appendPunctuationSplit appends s to dst broken so each punctuation rune is
+// its own token. The pieces are substrings of s, so no per-token allocation
+// occurs beyond growing dst.
+func appendPunctuationSplit(dst []string, s string) []string {
+	start := 0
+	for i, r := range s {
 		if isPunctuation(r) {
-			flush()
-			out = append(out, string(r))
-		} else {
-			cur = append(cur, r)
+			if start < i {
+				dst = append(dst, s[start:i])
+			}
+			dst = append(dst, s[i:i+utf8.RuneLen(r)])
+			start = i + utf8.RuneLen(r)
 		}
 	}
-	flush()
-	return out
+	if start < len(s) {
+		dst = append(dst, s[start:])
+	}
+	return dst
+}
+
+// isASCII reports whether s contains only ASCII bytes.
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= utf8.RuneSelf {
+			return false
+		}
+	}
+	return true
 }
 
 func isWhitespace(r rune) bool {
 	switch r {
 	case ' ', '\t', '\n', '\r':
 		return true
+	}
+	if r < utf8.RuneSelf {
+		return false
 	}
 	return unicode.Is(unicode.Zs, r)
 }
@@ -321,6 +387,9 @@ func isControl(r rune) bool {
 	switch r {
 	case '\t', '\n', '\r':
 		return false
+	}
+	if r < utf8.RuneSelf {
+		return r < 0x20 || r == 0x7F
 	}
 	return unicode.IsControl(r) || unicode.Is(unicode.Cf, r)
 }
@@ -331,6 +400,9 @@ func isPunctuation(r rune) bool {
 	if (r >= 33 && r <= 47) || (r >= 58 && r <= 64) ||
 		(r >= 91 && r <= 96) || (r >= 123 && r <= 126) {
 		return true
+	}
+	if r < utf8.RuneSelf {
+		return false
 	}
 	return unicode.IsPunct(r)
 }

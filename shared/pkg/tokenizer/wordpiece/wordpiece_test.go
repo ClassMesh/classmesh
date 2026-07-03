@@ -92,6 +92,50 @@ func TestWordpieceLongWordIsUnknown(t *testing.T) {
 	}
 }
 
+// TestReverseVocabFallback pins that vocabularies the reverse table cannot
+// represent (negative IDs, an empty-string token) still build and encode
+// correctly through the string-constructing fallback.
+func TestReverseVocabFallback(t *testing.T) {
+	tests := []struct {
+		name string
+		tok  string
+		id   int32
+	}{
+		{"negative id", "neg", -7},
+		{"empty token", "", int32(len(bertVocab))},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			vocab := vocabMap(bertVocab)
+			vocab[tc.tok] = tc.id
+			tok, err := New(vocab)
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+			if tok.tokens != nil {
+				t.Fatalf("tokens table = %v, want nil (fallback)", tok.tokens)
+			}
+			enc := tok.Encode("UNwantéd,running")
+			want := []string{"[CLS]", "un", "##want", "##ed", ",", "runn", "##ing", "[SEP]"}
+			if !reflect.DeepEqual(enc.Tokens, want) {
+				t.Fatalf("Tokens = %v, want %v", enc.Tokens, want)
+			}
+		})
+	}
+}
+
+// TestEncodeUnicodeLineSeparators pins that the U+2028 and U+2029 line
+// separators split words exactly like ASCII spaces, matching the
+// strings.Fields-based behaviour.
+func TestEncodeUnicodeLineSeparators(t *testing.T) {
+	tok := mustNew(t, bertVocab)
+	got := tok.Encode("unwanted\u2028running\u2029low")
+	want := tok.Encode("unwanted running low")
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Encode with line separators = %+v, want %+v", got, want)
+	}
+}
+
 // TestEncodeCanonical runs the full pipeline against the BERT FullTokenizer
 // vector: accented, mixed-case, punctuation-joined input.
 func TestEncodeCanonical(t *testing.T) {
