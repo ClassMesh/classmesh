@@ -13,7 +13,7 @@ LDFLAGS := -s -w \
            -X github.com/ClassMesh/classmesh/shared/pkg/version.Commit=$(COMMIT) \
            -X github.com/ClassMesh/classmesh/shared/pkg/version.Date=$(DATE)
 
-.PHONY: build cgo-check test coverage vet fmt tidy verify lint clean
+.PHONY: build cgo-check test coverage vet fmt tidy verify lint vuln clean
 
 ## build: compile every service binary into ./bin (cgo-free, single static binary)
 build:
@@ -57,6 +57,10 @@ verify:
 ## lint: run golangci-lint in every module
 lint:
 	@for m in $(MODULES); do (cd $$m && golangci-lint run --config=$(CURDIR)/.golangci.yml ./...); done
+
+## vuln: scan every module for known vulnerabilities (go install golang.org/x/vuln/cmd/govulncheck@v1.5.0)
+vuln:
+	@for m in $(MODULES); do (cd $$m && govulncheck ./...); done
 
 ## clean: remove build artifacts
 clean:
