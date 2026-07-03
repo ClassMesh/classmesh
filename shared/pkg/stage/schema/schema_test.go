@@ -149,7 +149,7 @@ func TestTrieMatchesFlatSemantics(t *testing.T) {
 	for i, fields := range records {
 		gotC, gotErr := trie.Classify(context.Background(), event(fields))
 		wantReasons, wantErr := classifyNaive(trie, fields)
-		if gotErr != wantErr && !errors.Is(gotErr, wantErr) {
+		if !errors.Is(gotErr, wantErr) {
 			t.Fatalf("record %d: err = %v, want %v", i, gotErr, wantErr)
 		}
 		if !reflect.DeepEqual(gotC.Reasons, wantReasons) {

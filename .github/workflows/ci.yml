@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 env:
   GO_VERSION: "1.25.x"
 
@@ -23,6 +30,10 @@ jobs:
             services/cli/go.sum
       - name: Verify module checksums
         run: make verify
+      - name: Tidy drift check
+        run: |
+          make tidy
+          git diff --exit-code -- '**/go.mod' '**/go.sum'
       - name: Vet
         run: make vet
       - name: Build (cgo-free) and assert static linking
@@ -49,7 +60,24 @@ jobs:
           cache: false
       - uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.8.0
+          version: v2.12.2
           working-directory: ${{ matrix.module }}
           args: --config=${{ github.workspace }}/.golangci.yml
-          only-new-issues: true
+
+  vuln:
+    name: Vulnerabilities
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: |
+            shared/go.sum
+            services/cli/go.sum
+      - name: Install govulncheck
+        run: go install golang.org/x/vuln/cmd/govulncheck@v1.5.0
+      - name: Scan modules
+        run: |
+          cd shared && govulncheck ./...
+          cd ../services/cli && govulncheck ./...
