@@ -2,6 +2,7 @@ package schema
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
@@ -82,7 +83,7 @@ func benchClassify(b *testing.B, s *Stage, r domain.Record) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, err := s.Classify(ctx, r)
-		if err != nil && err != stage.ErrUnclassified {
+		if err != nil && !errors.Is(err, stage.ErrUnclassified) {
 			b.Fatal(err)
 		}
 	}
