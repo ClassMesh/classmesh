@@ -169,6 +169,17 @@ func (s *Sink) flush() error {
 
 const hexDigits = "0123456789abcdef"
 
+// safeBytes marks the bytes that pass into a JSON string unescaped: ASCII
+// 0x20..0x7f except the quote and the backslash. Everything >= utf8.RuneSelf
+// stays false so multi-byte runes take the decoding path.
+var safeBytes [256]bool
+
+func init() {
+	for c := 0x20; c < utf8.RuneSelf; c++ {
+		safeBytes[c] = c != '"' && c != '\\'
+	}
+}
+
 // appendString appends s as a JSON string, matching encoding/json with HTML
 // escaping off: quotes, backslashes and control characters are escaped,
 // invalid UTF-8 becomes U+FFFD, and U+2028/U+2029 are escaped for JS embedding.
@@ -176,11 +187,12 @@ func appendString(b []byte, s string) []byte {
 	b = append(b, '"')
 	start := 0
 	for i := 0; i < len(s); {
-		if c := s[i]; c < utf8.RuneSelf {
-			if c >= 0x20 && c != '"' && c != '\\' {
-				i++
-				continue
-			}
+		c := s[i]
+		if safeBytes[c] {
+			i++
+			continue
+		}
+		if c < utf8.RuneSelf {
 			b = append(b, s[start:i]...)
 			b = appendEscapedByte(b, c)
 			i++
@@ -215,11 +227,12 @@ func appendStringBytes(b, s []byte) []byte {
 	b = append(b, '"')
 	start := 0
 	for i := 0; i < len(s); {
-		if c := s[i]; c < utf8.RuneSelf {
-			if c >= 0x20 && c != '"' && c != '\\' {
-				i++
-				continue
-			}
+		c := s[i]
+		if safeBytes[c] {
+			i++
+			continue
+		}
+		if c < utf8.RuneSelf {
 			b = append(b, s[start:i]...)
 			b = appendEscapedByte(b, c)
 			i++
@@ -272,6 +285,12 @@ func appendEscapedByte(b []byte, c byte) []byte {
 // appendFloat matches encoding/json's float formatting: fixed notation in the
 // human range, exponent notation outside it, with the exponent normalized.
 func appendFloat(b []byte, f float64) []byte {
+	if f == 1 {
+		return append(b, '1')
+	}
+	if f == 0 && !math.Signbit(f) {
+		return append(b, '0')
+	}
 	abs := math.Abs(f)
 	format := byte('f')
 	if abs != 0 && (abs < 1e-6 || abs >= 1e21) {
