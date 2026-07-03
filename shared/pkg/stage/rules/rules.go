@@ -294,10 +294,27 @@ func regexCheck(pattern, label string) (check, error) {
 	if err != nil {
 		return check{}, fmt.Errorf("rules: %s: %w", label, err)
 	}
-	return check{
-		desc:  fmt.Sprintf("regex %q", pattern),
-		match: func(r domain.Record) bool { return re.Match(r.Data) },
-	}, nil
+	desc := fmt.Sprintf("regex %q", pattern)
+	lit, complete := re.LiteralPrefix()
+	switch {
+	case lit != "" && complete:
+		b := []byte(lit)
+		return check{
+			desc:  desc,
+			match: func(r domain.Record) bool { return bytes.Contains(r.Data, b) },
+		}, nil
+	case lit != "":
+		b := []byte(lit)
+		return check{
+			desc:  desc,
+			match: func(r domain.Record) bool { return bytes.Contains(r.Data, b) && re.Match(r.Data) },
+		}, nil
+	default:
+		return check{
+			desc:  desc,
+			match: func(r domain.Record) bool { return re.Match(r.Data) },
+		}, nil
+	}
 }
 
 func groupCheck(m Matcher, label string) (check, error) {
@@ -365,9 +382,23 @@ func fieldCheck(fm FieldMatcher, label string) (check, error) {
 			return check{}, fmt.Errorf("rules: %s: field %q: %w", label, fm.Path, err)
 		}
 		desc = fmt.Sprintf("field %s matches %q", path, re.String())
-		pred = func(fields map[string]any) bool {
-			s, ok := lookupString(fields, segments)
-			return ok && re.MatchString(s)
+		lit, complete := re.LiteralPrefix()
+		switch {
+		case lit != "" && complete:
+			pred = func(fields map[string]any) bool {
+				s, ok := lookupString(fields, segments)
+				return ok && strings.Contains(s, lit)
+			}
+		case lit != "":
+			pred = func(fields map[string]any) bool {
+				s, ok := lookupString(fields, segments)
+				return ok && strings.Contains(s, lit) && re.MatchString(s)
+			}
+		default:
+			pred = func(fields map[string]any) bool {
+				s, ok := lookupString(fields, segments)
+				return ok && re.MatchString(s)
+			}
 		}
 	case fm.Gt != nil:
 		want := *fm.Gt
