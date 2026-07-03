@@ -29,6 +29,7 @@ func BenchmarkWrite(b *testing.B) {
 
 	ctx := context.Background()
 	b.ReportAllocs()
+	b.SetBytes(int64(len(r.Data)))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		if err := s.Write(ctx, r, c); err != nil {
@@ -59,6 +60,7 @@ func BenchmarkWriteStructured(b *testing.B) {
 
 	ctx := context.Background()
 	b.ReportAllocs()
+	b.SetBytes(int64(len(r.Data)))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		if err := s.Write(ctx, r, c); err != nil {
