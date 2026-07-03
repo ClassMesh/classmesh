@@ -13,7 +13,7 @@ import (
 	"github.com/ClassMesh/classmesh/shared/pkg/source"
 )
 
-func TestNextYieldsObjectsWithFieldsAndMetadata(t *testing.T) {
+func TestNextYieldsObjectsWithFields(t *testing.T) {
 	in := `{"level":"error","msg":"boom"}
 {"level":"info","n":42}`
 	s := New(strings.NewReader(in), "events")
@@ -33,8 +33,8 @@ func TestNextYieldsObjectsWithFieldsAndMetadata(t *testing.T) {
 	if first.Fields["level"] != "error" || first.Fields["msg"] != "boom" {
 		t.Fatalf("Next() Fields = %v, want level=error msg=boom", first.Fields)
 	}
-	if first.Meta["source"] != "events" || first.Meta["line"] != "1" {
-		t.Fatalf("Next() Meta = %v, want source=events line=1", first.Meta)
+	if first.Meta != nil {
+		t.Fatalf("Next() Meta = %v, want nil (provenance lives in the ID)", first.Meta)
 	}
 
 	second, err := s.Next(ctx)
@@ -60,15 +60,18 @@ func TestSkipsBlankLinesAndKeepsTrueLineNumbers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Next() error = %v", err)
 	}
-	if r1.Meta["line"] != "2" || r1.Fields["a"] != json.Number("1") {
-		t.Fatalf("Next() = line %s fields %v, want line 2 a=1", r1.Meta["line"], r1.Fields)
+	if r1.ID != "f:2" || r1.Fields["a"] != json.Number("1") {
+		t.Fatalf("Next() = id %s fields %v, want f:2 a=1", r1.ID, r1.Fields)
 	}
 	r2, err := s.Next(ctx)
 	if err != nil {
 		t.Fatalf("Next() #2 error = %v", err)
 	}
-	if r2.Meta["line"] != "4" || r2.Fields["b"] != json.Number("2") {
-		t.Fatalf("Next() #2 = line %s fields %v, want line 4 b=2", r2.Meta["line"], r2.Fields)
+	if r2.ID != "f:4" || r2.Fields["b"] != json.Number("2") {
+		t.Fatalf("Next() #2 = id %s fields %v, want f:4 b=2", r2.ID, r2.Fields)
+	}
+	if r1.ID != "f:2" {
+		t.Fatalf("first ID = %q after a later Next call, want f:2 (IDs must not alias the scratch buffer)", r1.ID)
 	}
 	if _, err := s.Next(ctx); !errors.Is(err, source.ErrDrained) {
 		t.Fatalf("Next() after blanks error = %v, want ErrDrained", err)
@@ -149,8 +152,8 @@ func TestOpenReadsFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Next() error = %v", err)
 	}
-	if r.Fields["k"] != "v" || r.Meta["source"] != path {
-		t.Fatalf("Next() = fields %v meta %v, want k=v source=%s", r.Fields, r.Meta, path)
+	if r.Fields["k"] != "v" || r.ID != path+":1" {
+		t.Fatalf("Next() = fields %v id %q, want k=v id %s:1", r.Fields, r.ID, path)
 	}
 }
 

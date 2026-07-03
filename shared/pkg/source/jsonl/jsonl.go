@@ -32,14 +32,15 @@ type Source struct {
 	scanner *bufio.Scanner
 	name    string
 	line    int
+	idBuf   []byte
 	closed  atomic.Bool
 }
 
 var _ source.Source = (*Source)(nil)
 
 // New returns a Source reading JSON Lines from r. name labels the stream in
-// record IDs and metadata (e.g. "stdin", a file path). If r is an io.Closer it
-// is closed by Close.
+// record IDs (e.g. "stdin", a file path). If r is an io.Closer it is closed
+// by Close.
 func New(r io.Reader, name string) *Source {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), maxLineBytes)
@@ -74,27 +75,25 @@ func (s *Source) Next(ctx context.Context) (domain.Record, error) {
 		if len(bytes.TrimSpace(raw)) == 0 {
 			continue
 		}
-		line := strconv.Itoa(s.line)
 		data := make([]byte, len(raw))
 		copy(data, raw)
 		dec := json.NewDecoder(bytes.NewReader(data))
 		dec.UseNumber()
 		var fields map[string]any
 		if err := dec.Decode(&fields); err != nil {
-			return domain.Record{}, fmt.Errorf("jsonl: %s:%s: %w", s.name, line, err)
+			return domain.Record{}, fmt.Errorf("jsonl: %s:%d: %w", s.name, s.line, err)
 		}
 		if fields == nil {
-			return domain.Record{}, fmt.Errorf("jsonl: %s:%s: line is not a JSON object", s.name, line)
+			return domain.Record{}, fmt.Errorf("jsonl: %s:%d: line is not a JSON object", s.name, s.line)
 		}
 		if err := dec.Decode(new(json.RawMessage)); !errors.Is(err, io.EOF) {
-			return domain.Record{}, fmt.Errorf("jsonl: %s:%s: unexpected data after JSON object", s.name, line)
+			return domain.Record{}, fmt.Errorf("jsonl: %s:%d: unexpected data after JSON object", s.name, s.line)
 		}
 		return domain.Record{
-			ID:     s.name + ":" + line,
+			ID:     s.recordID(),
 			Kind:   domain.KindJSON,
 			Data:   data,
 			Fields: fields,
-			Meta:   map[string]string{"source": s.name, "line": line},
 		}, nil
 	}
 	if s.closed.Load() {
@@ -107,6 +106,16 @@ func (s *Source) Next(ctx context.Context) (domain.Record, error) {
 		return domain.Record{}, fmt.Errorf("jsonl: %s: %w", s.name, err)
 	}
 	return domain.Record{}, source.ErrDrained
+}
+
+// recordID builds "name:line" through a reused scratch buffer, so the ID is
+// the only string allocated per record. The ID is the record's provenance;
+// no Meta map is attached.
+func (s *Source) recordID() string {
+	s.idBuf = append(s.idBuf[:0], s.name...)
+	s.idBuf = append(s.idBuf, ':')
+	s.idBuf = strconv.AppendInt(s.idBuf, int64(s.line), 10)
+	return string(s.idBuf)
 }
 
 // Close implements source.Source. Safe to call more than once, and
