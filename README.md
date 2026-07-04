@@ -70,7 +70,9 @@ records with declared confidences below 1.0, so per-stage gates and review
 routing can be exercised before a real model stage exists. When the config declares category
 `routes`, classified records are dispatched by category — each route to its own
 sink, or `drop` to discard that category — with the default sink as the fallback
-for unrouted categories.
+for unrouted categories. A top-level `workers: N` (or `--workers N` with
+`--rules`) classifies records on N goroutines while preserving output order,
+error reporting, and stats exactly; the default stays serial.
 
 ## Performance
 

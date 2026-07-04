@@ -5,6 +5,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -140,6 +141,38 @@ func TestRunConfigDropRoute(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "\"category\":\"billing\"") {
 		t.Fatalf("stdout = %q, want billing", out.String())
+	}
+}
+
+func TestRunConfigWorkersRunsParallel(t *testing.T) {
+	dir := t.TempDir()
+	r := writeFile(t, dir, "r.yml", "rules:\n  - category: noise\n    contains: [\"healthz\"]\n")
+	cfg := writeFile(t, dir, "cm.yaml", "version: 1\nworkers: 4\ninput: { type: text }\nstages:\n  - { id: rules, type: rules, path: \""+r+"\" }\nsink: { type: jsonl, stream: stdout }\n")
+	var out, errOut bytes.Buffer
+	var lines []string
+	for i := 0; i < 200; i++ {
+		lines = append(lines, "GET /healthz 200 n="+strconv.Itoa(i))
+	}
+	in := strings.NewReader(strings.Join(lines, "\n") + "\n")
+	if err := Run(context.Background(), []string{"run", "--config", cfg}, Streams{In: in, Out: &out, Err: &errOut}); err != nil {
+		t.Fatalf("Run() error = %v, stderr=%s", err, errOut.String())
+	}
+	got := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(got) != 200 {
+		t.Fatalf("output lines = %d, want 200", len(got))
+	}
+	for i, line := range got {
+		if !strings.Contains(line, "\"id\":\"stdin:"+strconv.Itoa(i+1)+"\"") {
+			t.Fatalf("line %d out of order: %s", i, line)
+		}
+	}
+}
+
+func TestRunRejectsWorkersFlagWithConfig(t *testing.T) {
+	var out, errOut bytes.Buffer
+	err := Run(context.Background(), []string{"run", "--config", "x.yaml", "--workers", "4"}, Streams{In: strings.NewReader(""), Out: &out, Err: &errOut})
+	if err == nil || !strings.Contains(err.Error(), "declared in the config") {
+		t.Fatalf("Run() error = %v, want workers-in-config rejection", err)
 	}
 }
 

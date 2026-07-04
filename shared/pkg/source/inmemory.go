@@ -2,6 +2,7 @@ package source
 
 import (
 	"context"
+	"sync/atomic"
 
 	"github.com/ClassMesh/classmesh/shared/pkg/domain"
 )
@@ -11,7 +12,7 @@ import (
 type InMemory struct {
 	records []domain.Record
 	pos     int
-	closed  bool
+	closed  atomic.Bool
 }
 
 var _ Source = (*InMemory)(nil)
@@ -26,7 +27,7 @@ func (s *InMemory) Next(ctx context.Context) (domain.Record, error) {
 	if err := ctx.Err(); err != nil {
 		return domain.Record{}, err
 	}
-	if s.closed || s.pos >= len(s.records) {
+	if s.closed.Load() || s.pos >= len(s.records) {
 		return domain.Record{}, ErrDrained
 	}
 	r := s.records[s.pos]
@@ -34,8 +35,9 @@ func (s *InMemory) Next(ctx context.Context) (domain.Record, error) {
 	return r, nil
 }
 
-// Close implements Source.
+// Close implements Source. Safe to call concurrently with Next, matching
+// the real sources: the engine closes a source to unwind a blocked read.
 func (s *InMemory) Close() error {
-	s.closed = true
+	s.closed.Store(true)
 	return nil
 }
