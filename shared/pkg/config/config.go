@@ -23,6 +23,7 @@ type Config struct {
 	Version int                 `yaml:"version"`
 	Input   Input               `yaml:"input"`
 	Stages  []StageSpec         `yaml:"stages"`
+	Workers int                 `yaml:"workers,omitempty"` // concurrent classification workers; 0/1 = serial
 	Routes  map[string]SinkSpec `yaml:"routes,omitempty"`
 	Sink    SinkSpec            `yaml:"sink"`
 	Review  *SinkSpec           `yaml:"review,omitempty"`
@@ -118,6 +119,9 @@ func firstYAMLError(err error) error {
 func (c *Config) Validate() error {
 	if c.Version != Version {
 		return fmt.Errorf("config: unsupported version %d (want %d)", c.Version, Version)
+	}
+	if c.Workers < 0 {
+		return fmt.Errorf("config: workers must not be negative, got %d", c.Workers)
 	}
 	if !inputTypes[c.Input.Type] {
 		return fmt.Errorf("config: input.type %q is not one of %s", c.Input.Type, inputList)
