@@ -113,8 +113,10 @@ fp32 on simplego: the dynamic-quantize / integer-matmul path is not optimized in
 this backend, so quantization hurts here rather than helping.
 
 Every sentence is padded to 128 tokens, so compute is fixed per record
-regardless of sentence length. A shorter fixed sequence length would reduce the
-number proportionally but not by the ~11x needed.
+regardless of sentence length. Shorter sequences were measured, not estimated:
+seqLen 32 gives 218 ms and seqLen 16 gives 146 ms (fp32, same protocol). The
+scaling is far from linear because the backend carries a large fixed overhead
+per inference, so even log-line-short sequences stay ~6x over the target.
 
 ## Go / no-go
 
