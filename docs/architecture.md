@@ -6,9 +6,8 @@ records through an ordered cascade of stages. The `classmesh` binary is a thin
 wrapper that wires those packages together for the file and stdin case; it adds
 no classification logic of its own.
 
-If you only read one thing: the domain is "classify records", not "classify
-logs". Logs are the first payload we adapt, not the shape the core is built
-around.
+The domain is "classify records", not "classify logs". Logs are the first
+payload we adapt, not the shape the core is built around.
 
 ## The record envelope
 
@@ -23,7 +22,7 @@ envelope, deliberately payload-agnostic:
 - `Fields` holds structured attributes a source decoded from the payload (a
   JSON object, say), or is nil for unstructured payloads.
 - `Meta` carries optional source-specific context. The built-in sources leave
-  it empty — a record's provenance (source name and line) lives in its `ID`.
+  it empty; a record's provenance (source name and line) lives in its `ID`.
 
 The core packages never inspect `Data` as a log line. They move records,
 classify them, and emit results. What the bytes mean is the concern of a stage,
@@ -70,7 +69,7 @@ one caller of it.
 Beyond `--rules`, a cascade can be declared in a versioned YAML config
 (`shared/pkg/config`): an input, an ordered list of stages with optional
 per-stage confidence gates, category routes, a default sink, and a review sink.
-The config is parsed strictly — unknown keys are rejected — and validated up
+The config is parsed strictly (unknown keys are rejected) and validated up
 front, so a malformed pipeline fails before any input is opened; `classmesh
 validate --config <file>` reports the first problem. `classmesh run --config
 <file>` then builds and runs the cascade: it executes `rules`, `schema`, and
@@ -82,7 +81,7 @@ mock stage is a deterministic model stand-in emitting declared sub-1.0
 confidences, so gate escalation and review routing are exercisable end to end
 before the model tier lands.
 
-With `workers: N` the engine classifies concurrently — one reader, N workers,
-one ordered writer gated by admission credits — so output order, deterministic
+With `workers: N` the engine classifies concurrently (one reader, N workers,
+one ordered writer gated by admission credits) so output order, deterministic
 error selection, and stats stay identical to the serial loop. Stages must be
 safe for concurrent Classify (all built-ins are).

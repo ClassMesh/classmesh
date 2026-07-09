@@ -1,6 +1,6 @@
 // Package textfile implements source.Source over line-oriented text: files
-// and stdin. Every line becomes one Record, losslessly — blank lines
-// included — so downstream stages see exactly what the input contained.
+// and stdin. Every line becomes one Record, losslessly, blank lines
+// included, so downstream stages see exactly what the input contained.
 package textfile
 
 import (

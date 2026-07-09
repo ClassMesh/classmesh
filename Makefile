@@ -20,13 +20,13 @@ build:
 	mkdir -p $(BIN)
 	CGO_ENABLED=0 go build -ldflags '$(LDFLAGS)' -o $(BIN)/classmesh ./services/cli/cmd/classmesh
 
-## cgo-check: assert the shipped binary built cgo-free — statically linked, no C deps.
+## cgo-check: assert the shipped binary built cgo-free: statically linked, no C deps.
 ## (`-race` tests still need cgo, so the guarantee is enforced on the artifact, not the test harness.)
 cgo-check: build
 	@if file $(BIN)/classmesh | grep -q 'statically linked'; then \
 	  echo 'cgo-free OK: classmesh is statically linked (CGO_ENABLED=0)'; \
 	else \
-	  echo 'NOT cgo-free: classmesh is dynamically linked — a cgo dependency leaked in'; \
+	  echo 'NOT cgo-free: classmesh is dynamically linked; a cgo dependency leaked in'; \
 	  file $(BIN)/classmesh; exit 1; \
 	fi
 

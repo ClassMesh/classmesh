@@ -13,7 +13,7 @@ import (
 )
 
 // TestCommitOrderedReordersFullWindow drives the writer directly with the
-// worst-case arrival order — the entire admission window lands before seq 0 —
+// worst-case arrival order (the entire admission window lands before seq 0),
 // proving deterministically that the reorder buffer holds W-1 batches, output
 // stays in sequence order, and exactly one credit returns per commit.
 func TestCommitOrderedReordersFullWindow(t *testing.T) {

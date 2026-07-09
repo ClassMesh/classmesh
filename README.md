@@ -2,7 +2,9 @@
 
 High-throughput classification pipeline for streams and files. Deterministic rules first, small in-process models next, expensive calls only for what's left. One Go binary.
 
-> **Status:** early development. Interfaces are being laid down; not ready for use yet.
+> **Status:** v1 in progress. Rules, schema, and cascade config work end to end
+> (`make test` passes, the examples below run as documented, and the parallel
+> engine is merged). A real model stage is next; a deterministic mock stands in.
 
 ## Why
 
@@ -11,9 +13,9 @@ Classifying high-volume data (logs, events, records) with an LLM per record is s
 ## Design
 
 ```
-source → [ stage 1: rules ] → [ stage 2: model ] → [ stage N ] → sink
+source -> [ stage 1: rules ] -> [ stage 2: model ] -> [ stage N ] -> sink
               │ confident?         │ confident?
-              └── exit early ──────┴── exit early      uncertain → review sink
+              └── exit early ──────┴── exit early      uncertain -> review sink
 ```
 
 Everything is an interface: input sources, classification stages, and output sinks are pluggable modules. Today: text files and stdin. Tomorrow: whatever implements `Source`.
@@ -68,8 +70,8 @@ sink and the review sink; every stage loads its declaration from the stage's
 `path`. The `mock` stage is a deterministic model stand-in that scores matched
 records with declared confidences below 1.0, so per-stage gates and review
 routing can be exercised before a real model stage exists. When the config declares category
-`routes`, classified records are dispatched by category — each route to its own
-sink, or `drop` to discard that category — with the default sink as the fallback
+`routes`, classified records are dispatched by category (each route to its own
+sink, or `drop` to discard that category) with the default sink as the fallback
 for unrouted categories. A top-level `workers: N` (or `--workers N` with
 `--rules`) classifies records on N goroutines while preserving output order,
 error reporting, and stats exactly; the default stays serial.
@@ -88,8 +90,8 @@ Per-record cost depends on your ruleset: order rules by expected volume so the
 hot path exits early.
 
 The comparison that motivates the cascade: classifying 1M short log lines with
-a budget LLM API (≈25 input + 5 output tokens each at $0.15/$0.60 per million
-tokens) costs ≈ **$6.75 per million lines** and runs at API latency. The rules
+a budget LLM API (~25 input + 5 output tokens each at $0.15/$0.60 per million
+tokens) costs about **$6.75 per million lines** and runs at API latency. The rules
 stage does the same volume in well under a second per core for the cost of the
 electricity, and the cascade design only forwards the records rules can't
 decide to anything that costs money.

@@ -3,7 +3,7 @@
 //
 // The wire shape per line is {"id", "kind", "data", "fields", "meta",
 // "category", "confidence", "stage", "reasons"}, where kind, fields, meta,
-// stage, and reasons appear only when present — and kind only for structured
+// stage, and reasons appear only when present, and kind only for structured
 // payloads, so a plain text record serializes exactly as it always has.
 package jsonl
 
@@ -23,7 +23,7 @@ import (
 )
 
 // Sink writes one JSON object per record to an io.Writer. Output is
-// buffered; Close flushes. The underlying writer is not closed — the caller
+// buffered; Close flushes. The underlying writer is not closed; the caller
 // owns it (it is usually stdout). Not safe for concurrent Write: the engine
 // drives a sink from one goroutine, and the scratch buffers rely on that.
 type Sink struct {
