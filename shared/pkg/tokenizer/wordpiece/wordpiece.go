@@ -48,7 +48,7 @@ type Encoding struct {
 // construction.
 type Tokenizer struct {
 	vocab  map[string]int32
-	tokens []string // ID→token reverse table, or nil when reverseVocab declines
+	tokens []string // ID-to-token reverse table, or nil when reverseVocab declines
 
 	unk, cls, sep       string
 	unkID, clsID, sepID int32
@@ -154,8 +154,8 @@ func Load(path string, opts ...Option) (*Tokenizer, error) {
 	return Parse(f, opts...)
 }
 
-// reverseVocab builds an ID→token table so subword matches reuse interned
-// strings. Negative, sparse, or colliding IDs and empty tokens return nil —
+// reverseVocab builds an ID-to-token table so subword matches reuse interned
+// strings. Negative, sparse, or colliding IDs and empty tokens return nil;
 // callers fall back to constructing the string, which is always safe.
 func reverseVocab(vocab map[string]int32, maxID int32) []string {
 	if maxID < 0 || int64(maxID)+1 > int64(2*len(vocab)) {

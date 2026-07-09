@@ -34,6 +34,8 @@ type outcome struct {
 // runParallel runs one reader, N workers, and one ordered writer. Admission
 // credits cap the batches in flight. The writer alone touches stats and
 // sinks, so ordering, errors, and stats match the serial loop exactly.
+// cap(results) must stay workers+1: one slot per credit plus one reserved
+// for the terminal batch, so no send into results ever blocks.
 func (e *Engine) runParallel(ctx context.Context) (Stats, error) {
 	workCtx, cancel := context.WithCancel(ctx)
 	defer cancel()

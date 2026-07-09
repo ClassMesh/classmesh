@@ -61,7 +61,7 @@ func (s *alwaysStage) Classify(ctx context.Context, r domain.Record) (domain.Cla
 	return domain.Classification{Category: "ok", Confidence: 1}, nil
 }
 
-// blockingSource yields its records, then blocks in Next until Close — like a
+// blockingSource yields its records, then blocks in Next until Close, like a
 // pipe with no writer. It deliberately ignores ctx, modeling sources whose
 // blocked read only Close can interrupt.
 type blockingSource struct {
@@ -421,7 +421,7 @@ func (f *failingReview) Close() error { return f.inner.Close() }
 
 // TestParallelFailureMatrixMatchesSerial runs every failure shape through the
 // serial loop and the parallel pipeline and requires identical errors and
-// stats — the strongest form of the determinism contract.
+// stats: the strongest form of the determinism contract.
 func TestParallelFailureMatrixMatchesSerial(t *testing.T) {
 	boom := errors.New("boom")
 	n := 2*batchSize + 5
