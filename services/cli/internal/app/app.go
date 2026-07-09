@@ -55,7 +55,7 @@ func Run(ctx context.Context, args []string, s Streams) error {
 }
 
 func usage(w io.Writer) {
-	_, _ = fmt.Fprintln(w, `classmesh — classification cascade pipeline
+	_, _ = fmt.Fprintln(w, `classmesh: classification cascade pipeline
 
 Usage:
   classmesh run --rules rules.yml [--input text|jsonl] [--review review.jsonl] [--min-confidence 0.7] [--workers N] [file ...]

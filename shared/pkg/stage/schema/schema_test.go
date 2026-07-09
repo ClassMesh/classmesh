@@ -158,8 +158,8 @@ func TestTrieMatchesFlatSemantics(t *testing.T) {
 	}
 }
 
-// classifyNaive reimplements the documented flat semantics — one independent
-// lookup per field, violations in declaration order — as the oracle the trie
+// classifyNaive reimplements the documented flat semantics (one independent
+// lookup per field, violations in declaration order) as the oracle the trie
 // walk must match.
 func classifyNaive(s *Stage, fieldsMap map[string]any) ([]domain.Reason, error) {
 	var out []domain.Reason

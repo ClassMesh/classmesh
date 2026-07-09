@@ -1,5 +1,5 @@
 // Package source defines where Records come from. Anything that can yield
-// Records — a text file, stdin, a CSV, a network stream — implements Source.
+// Records (a text file, stdin, a CSV, a network stream) implements Source.
 package source
 
 import (

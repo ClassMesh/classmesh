@@ -17,7 +17,7 @@ import (
 	"github.com/ClassMesh/classmesh/shared/pkg/stage"
 )
 
-// chunkSize is how many contiguous records a worker claims per atomic step —
+// chunkSize is how many contiguous records a worker claims per atomic step,
 // coarse enough that the shared counter and result slots stop contending.
 const chunkSize = 64
 

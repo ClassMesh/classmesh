@@ -11,7 +11,7 @@ import (
 	"github.com/ClassMesh/classmesh/shared/pkg/stage/rules"
 )
 
-// benchSource yields the same record n times — measures the pipeline, not
+// benchSource yields the same record n times; it measures the pipeline, not
 // record generation.
 type benchSource struct {
 	record domain.Record
@@ -31,7 +31,7 @@ func (s *benchSource) Next(ctx context.Context) (domain.Record, error) {
 
 func (s *benchSource) Close() error { return nil }
 
-// discardSink accepts everything — measures the pipeline, not output I/O.
+// discardSink accepts everything; it measures the pipeline, not output I/O.
 type discardSink struct{}
 
 var _ sink.Sink = discardSink{}

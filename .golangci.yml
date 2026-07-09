@@ -2,7 +2,7 @@
 #
 # A curated set: bug-catchers (errcheck, staticcheck, ineffassign, unused,
 # errorlint, copyloopvar) plus a few low-noise hygiene linters (misspell,
-# nolintlint) — strict enough to catch real defects without style churn.
+# nolintlint): strict enough to catch real defects without style churn.
 
 version: "2"
 
