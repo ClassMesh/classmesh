@@ -1,6 +1,6 @@
 // Package logfields extracts common fields from a text log line, best-effort:
 // a leading timestamp, a level token, and logfmt key=value pairs. It is an
-// optional adapter that sits above a text source — a line it cannot read still
+// optional adapter that sits above a text source; a line it cannot read still
 // flows through untouched, with its raw bytes intact.
 package logfields
 
