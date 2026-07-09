@@ -14,8 +14,8 @@ Classifying high-volume data (logs, events, records) with an LLM per record is s
 
 ```
 source -> [ stage 1: rules ] -> [ stage 2: model ] -> [ stage N ] -> sink
-              │ confident?         │ confident?
-              └── exit early ──────┴── exit early      uncertain -> review sink
+               │ confident?          │ confident?
+               └── exit early ───────┴── exit early    uncertain -> review sink
 ```
 
 Everything is an interface: input sources, classification stages, and output sinks are pluggable modules. Today: text files and stdin. Tomorrow: whatever implements `Source`.
@@ -82,9 +82,9 @@ Measured on a single core (AMD Ryzen 7 3800X, `make bench`):
 
 | Path | Per record | Throughput | Allocations |
 |---|---|---|---|
-| Rules stage, first-rule hit | 27 ns | ~37M records/sec | 0 |
-| Rules stage, worst case (20-rule walk, regex-heavy) | ~7 µs | ~140k records/sec | 0 |
-| Full pipeline (engine + rules + sink) | 435 ns | ~2.3M records/sec | 0 |
+| Rules stage, first-rule hit | 46 ns | ~22M records/sec | 0 |
+| Rules stage, worst case (20-rule walk, regex-heavy) | ~6-7 µs | ~150k records/sec | 0 |
+| Full pipeline (engine + rules + sink) | ~500 ns | ~2M records/sec | 0 |
 
 Per-record cost depends on your ruleset: order rules by expected volume so the
 hot path exits early.
@@ -96,7 +96,10 @@ stage does the same volume in well under a second per core for the cost of the
 electricity, and the cascade design only forwards the records rules can't
 decide to anything that costs money.
 
-Reproduce: `make bench`.
+Reproduce: `make bench` for the table. For an end-to-end run at volume,
+`go run examples/genlogs.go -n 1000000 > logs-1m.txt` generates a
+deterministic weighted stream matching the example ruleset; 1M lines
+classify in under a second, including JSON output.
 
 ## Development
 
