@@ -14,8 +14,8 @@ Classifying high-volume data (logs, events, records) with an LLM per record is s
 
 ```
 source -> [ stage 1: rules ] -> [ stage 2: model ] -> [ stage N ] -> sink
-              │ confident?         │ confident?
-              └── exit early ──────┴── exit early      uncertain -> review sink
+               │ confident?          │ confident?
+               └── exit early ───────┴── exit early    uncertain -> review sink
 ```
 
 Everything is an interface: input sources, classification stages, and output sinks are pluggable modules. Today: text files and stdin. Tomorrow: whatever implements `Source`.
