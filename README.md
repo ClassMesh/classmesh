@@ -82,9 +82,9 @@ Measured on a single core (AMD Ryzen 7 3800X, `make bench`):
 
 | Path | Per record | Throughput | Allocations |
 |---|---|---|---|
-| Rules stage, first-rule hit | 27 ns | ~37M records/sec | 0 |
-| Rules stage, worst case (20-rule walk, regex-heavy) | ~7 µs | ~140k records/sec | 0 |
-| Full pipeline (engine + rules + sink) | 435 ns | ~2.3M records/sec | 0 |
+| Rules stage, first-rule hit | 46 ns | ~22M records/sec | 0 |
+| Rules stage, worst case (20-rule walk, regex-heavy) | ~6-7 µs | ~150k records/sec | 0 |
+| Full pipeline (engine + rules + sink) | ~500 ns | ~2M records/sec | 0 |
 
 Per-record cost depends on your ruleset: order rules by expected volume so the
 hot path exits early.
@@ -96,7 +96,9 @@ stage does the same volume in well under a second per core for the cost of the
 electricity, and the cascade design only forwards the records rules can't
 decide to anything that costs money.
 
-Reproduce: `make bench`.
+Reproduce: `make bench` for the table, and the `genlogs` example above for an
+end-to-end run at volume (1M generated lines classify in under a second,
+including JSON output).
 
 ## Development
 
