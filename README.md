@@ -59,8 +59,10 @@ classmesh run --config examples/classmesh.yaml prod.log > classified.jsonl
 
 With the default seed, the million lines classify in under two seconds:
 the rules tier decides 88%, the model tier 6%, and 6% lands in
-`examples/review.jsonl` (stats on stderr:
-`processed=1000000 classified=940162 review=59838`).
+`examples/review.jsonl`. The stderr stats line reads
+`processed=1000000 classified=940162 review=59838 by_stage=map[model:60009 rules:880153]`;
+classified counts the health-check records the noise route then discards, so
+`classified.jsonl` holds 720,490 lines.
 
 ### Cascade config
 
