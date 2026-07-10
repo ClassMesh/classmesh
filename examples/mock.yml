@@ -1,0 +1,13 @@
+# Model-tier stand-in: sub-1.0 confidences exercise the 0.7 gate in classmesh.yaml.
+matchers:
+  - contains: ["warn "]
+    category: anomaly
+    confidence: 0.85
+
+  - contains: ["shipment ", "inventory "]
+    category: logistics
+    confidence: 0.6
+
+default:
+  category: unknown
+  confidence: 0.4

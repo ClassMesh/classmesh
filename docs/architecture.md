@@ -33,8 +33,9 @@ logs, events, and structured records without a parallel type per payload.
 
 A pipeline is assembled from four interfaces, each in its own package:
 
-- `source.Source` yields records until it is drained. Text files and stdin
-  implement it today; a CSV reader or a network stream could implement it next.
+- `source.Source` yields records until it is drained. Text files, JSONL
+  streams, and stdin implement it today; a CSV reader or a network stream could
+  implement it next.
 - `stage.Stage` classifies a record or reports `ErrUnclassified`. Stages range
   from deterministic rule matching to in-process models to remote calls.
 - `sink.Sink` consumes a record together with its classification: stdout, a

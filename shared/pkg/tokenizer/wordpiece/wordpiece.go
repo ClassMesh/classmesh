@@ -1,13 +1,13 @@
 // Package wordpiece implements BERT-style WordPiece tokenization in pure Go,
 // with no cgo and no external tokenizer runtime. It turns text into the token
-// IDs an ONNX BERT/MiniLM classifier expects: basic tokenization (Unicode
+// IDs a BERT-vocabulary model expects: basic tokenization (Unicode
 // cleanup, optional lowercasing and accent stripping, punctuation and CJK
 // splitting) followed by greedy longest-match-first subword segmentation
 // against a fixed vocabulary, wrapped with [CLS] and [SEP].
 //
-// It exists so the in-process model stage can stay a single static binary
-// (CGO_ENABLED=0): the common alternative, the rust tokenizers library, needs
-// cgo and a statically linked archive. We own this instead.
+// It is intended to feed a future in-process model stage so the binary can
+// stay CGO_ENABLED=0; no such stage is wired yet. The common alternative, the
+// rust tokenizers library, needs cgo and a statically linked archive.
 package wordpiece
 
 import (
