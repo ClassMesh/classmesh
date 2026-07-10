@@ -1,4 +1,6 @@
 temp/
 bin/
 coverage.out
-.claude/
+prod.log
+classified.jsonl
+examples/review.jsonl

@@ -1,0 +1,32 @@
+# Ruleset for the genprod demo. Ordered by volume; first match wins.
+rules:
+  - id: health-noise
+    category: noise
+    contains: ["/healthz", "/readiness"]
+
+  - id: access-ok
+    category: traffic
+    contains: ["status=200", "status=201", "status=204"]
+
+  - id: app-ops
+    category: ops
+    contains: ["cache miss", "job completed", "connection pool"]
+
+  - id: payment-event
+    category: billing
+    regex: ["payment (succeeded|declined|failed)"]
+
+  - id: auth-signal
+    category: auth
+    any:
+      - contains: "unauthorized"
+      - contains: "login failed"
+      - contains: "rate limited"
+
+  - id: alert
+    category: alert
+    any:
+      - regex: "status=[45][0-9][0-9]"
+      - contains: "error "
+      - contains: "panic"
+      - contains: "OOMKilled"

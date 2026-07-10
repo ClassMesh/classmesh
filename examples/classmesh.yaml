@@ -1,0 +1,11 @@
+# Production-log cascade demo: rules tier -> gated model stand-in -> review,
+# noise dropped by route. Commands: README, Examples section.
+version: 1
+input: { type: text }
+stages:
+  - { id: rules, type: rules, path: prod-rules.yml, gate: 1.0 }
+  - { id: model, type: mock, path: mock.yml, gate: 0.7 }
+sink: { type: jsonl, stream: stdout }
+review: { type: jsonl, path: review.jsonl }
+routes:
+  noise: { type: drop }

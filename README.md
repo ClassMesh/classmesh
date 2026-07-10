@@ -18,7 +18,7 @@ source -> [ stage 1: rules ] -> [ stage 2: model ] -> [ stage N ] -> sink
                └── exit early ───────┴── exit early    uncertain -> review sink
 ```
 
-Everything is an interface: input sources, classification stages, and output sinks are pluggable modules. Today: text files and stdin. Tomorrow: whatever implements `Source`.
+Everything is an interface: input sources, classification stages, and output sinks are pluggable modules. Today: text files, JSONL event streams, and stdin. Tomorrow: whatever implements `Source`.
 
 For working examples of each contract, see [`textfile`](shared/pkg/source/textfile) (a `Source`), [`rules`](shared/pkg/stage/rules) (a `Stage`), and [`jsonl`](shared/pkg/sink/jsonl) (a `Sink`). [`docs/architecture.md`](docs/architecture.md) explains how the pieces fit and why the core stays payload-agnostic.
 
@@ -44,14 +44,34 @@ Each classified record is one JSON object on stdout with its category,
 confidence, the matched rule's reason, and (for events) the decoded fields.
 Records no rule matches are counted and reported on stderr.
 
+The full multi-stage cascade runs from a fresh clone too. `genprod.go` writes
+production-shaped logs (access lines, probes, app chatter, payments, auth
+events, warns, errors, and a slice nothing recognizes; deterministic by seed),
+and `classmesh.yaml` declares a two-tier cascade over them: rules first, a
+gated model stand-in for the leftovers, review for what neither tier can
+decide, health-check noise dropped by route:
+
+```
+go run examples/genprod.go -n 1000000 > prod.log
+classmesh validate --config examples/classmesh.yaml
+classmesh run --config examples/classmesh.yaml prod.log > classified.jsonl
+```
+
+With the default seed, the million lines classify in under two seconds:
+the rules tier decides 88%, the model tier 6%, and 6% lands in
+`examples/review.jsonl`. The stderr stats line reads
+`processed=1000000 classified=940162 review=59838 by_stage=map[model:60009 rules:880153]`;
+classified counts the health-check records the noise route then discards, so
+`classified.jsonl` holds 720,490 lines.
+
 ### Cascade config
 
 A whole multi-stage cascade can be declared in one versioned YAML file, checked
 with `validate` and run with `run --config`:
 
 ```
-classmesh validate --config classmesh.yaml          # parse + validate only
-classmesh run --config classmesh.yaml app.log       # build and run it
+classmesh validate --config examples/classmesh.yaml   # parse + validate only
+classmesh run --config examples/classmesh.yaml app.log # build and run it
 ```
 
 ```yaml
@@ -84,10 +104,11 @@ Measured on a single core (AMD Ryzen 7 3800X, `make bench`):
 |---|---|---|---|
 | Rules stage, first-rule hit | 46 ns | ~22M records/sec | 0 |
 | Rules stage, worst case (20-rule walk, regex-heavy) | ~6-7 µs | ~150k records/sec | 0 |
-| Full pipeline (engine + rules + sink) | ~500 ns | ~2M records/sec | 0 |
+| Full pipeline (engine + rules, discard sink) | ~500 ns | ~2M records/sec | 0 |
 
 Per-record cost depends on your ruleset: order rules by expected volume so the
-hot path exits early.
+hot path exits early. The pipeline row isolates engine + rules behind a discard
+sink; the JSONL output path is benchmarked separately in `sink/jsonl`.
 
 The comparison that motivates the cascade: classifying 1M short log lines with
 a budget LLM API (~25 input + 5 output tokens each at $0.15/$0.60 per million
