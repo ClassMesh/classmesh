@@ -2,9 +2,10 @@
 
 High-throughput classification pipeline for streams and files. Deterministic rules first, small in-process models next, expensive calls only for what's left. One Go binary.
 
-> **Status:** v1 in progress. Rules, schema, and cascade config work end to end
-> (`make test` passes, the examples below run as documented, and the parallel
-> engine is merged). A real model stage is next; a deterministic mock stands in.
+> **Status:** v0.1.0, working toward v1. Rules, schema, and cascade config work
+> end to end (`make test` passes, the examples below run as documented, and the
+> parallel engine is merged). A real model stage is next; a deterministic mock
+> stands in until it lands.
 
 ## Why
 
@@ -30,14 +31,16 @@ For working examples of each contract, see [`textfile`](shared/pkg/source/textfi
 ## Examples
 
 Runnable examples live in [`examples/`](examples): one ruleset that classifies
-both text logs and JSON events.
+both text logs and JSON events. Every block below runs from a fresh clone.
 
 ```
+make build
+
 # text logs, one record per line
-classmesh run --rules examples/rules.yml examples/logs.txt
+./bin/classmesh run --rules examples/rules.yml examples/logs.txt
 
 # JSON events, one object per line, classified on their fields
-classmesh run --rules examples/rules.yml --input jsonl examples/events.jsonl
+./bin/classmesh run --rules examples/rules.yml --input jsonl examples/events.jsonl
 ```
 
 Each classified record is one JSON object on stdout with its category,
@@ -53,8 +56,8 @@ decide, health-check noise dropped by route:
 
 ```
 go run examples/genprod.go -n 1000000 > prod.log
-classmesh validate --config examples/classmesh.yaml
-classmesh run --config examples/classmesh.yaml prod.log > classified.jsonl
+./bin/classmesh validate --config examples/classmesh.yaml
+./bin/classmesh run --config examples/classmesh.yaml prod.log > classified.jsonl
 ```
 
 With the default seed, the million lines classify in under two seconds:
@@ -70,8 +73,8 @@ A whole multi-stage cascade can be declared in one versioned YAML file, checked
 with `validate` and run with `run --config`:
 
 ```
-classmesh validate --config examples/classmesh.yaml   # parse + validate only
-classmesh run --config examples/classmesh.yaml app.log # build and run it
+./bin/classmesh validate --config examples/classmesh.yaml    # parse + validate only
+./bin/classmesh run --config examples/classmesh.yaml app.log # build and run it
 ```
 
 ```yaml
@@ -103,8 +106,8 @@ Measured on a single core (AMD Ryzen 7 3800X, `make bench`):
 | Path | Per record | Throughput | Allocations |
 |---|---|---|---|
 | Rules stage, first-rule hit | 46 ns | ~22M records/sec | 0 |
-| Rules stage, worst case (20-rule walk, regex-heavy) | ~6-7 µs | ~150k records/sec | 0 |
-| Full pipeline (engine + rules, discard sink) | ~500 ns | ~2M records/sec | 0 |
+| Rules stage, worst case (20-rule walk, regex-heavy) | 7-8 µs | ~130k records/sec | 0 |
+| Full pipeline (engine + rules, discard sink) | 500-550 ns | ~1.8M records/sec | 0 |
 
 Per-record cost depends on your ruleset: order rules by expected volume so the
 hot path exits early. The pipeline row isolates engine + rules behind a discard
