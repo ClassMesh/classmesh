@@ -539,3 +539,81 @@ func TestFieldsCyclesAndDepth(t *testing.T) {
 		})
 	}
 }
+
+func TestReleaseKeysClearsReferences(t *testing.T) {
+	s := New(io.Discard)
+	fields := map[string]any{
+		"outer": map[string]any{"inner": map[string]any{"leaf": "v"}},
+		"other": "x",
+	}
+	if err := s.Write(context.Background(), domain.Record{ID: "x", Data: []byte("d"), Fields: fields},
+		domain.Classification{Category: "c", Confidence: 1}); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	if len(s.keyStack) == 0 {
+		t.Fatal("keyStack unused; expected the nested write to exercise it")
+	}
+	for depth, keys := range s.keyStack {
+		if len(keys) != 0 {
+			t.Fatalf("keyStack[%d] len = %d after Write, want 0", depth, len(keys))
+		}
+		full := keys[:cap(keys)]
+		for i, k := range full {
+			if k != "" {
+				t.Fatalf("keyStack[%d][%d] retains %q after release", depth, i, k)
+			}
+		}
+	}
+
+	fields["outer"].(map[string]any)["inner"].(map[string]any)["bad"] = struct{}{}
+	if err := s.Write(context.Background(), domain.Record{ID: "y", Data: []byte("d"), Fields: fields},
+		domain.Classification{Category: "c", Confidence: 1}); err != nil {
+		t.Fatalf("Write() with fallback error = %v", err)
+	}
+	for depth, keys := range s.keyStack {
+		if len(keys) != 0 {
+			t.Fatalf("keyStack[%d] len = %d after fallback unwind, want 0", depth, len(keys))
+		}
+		full := keys[:cap(keys)]
+		for i, k := range full {
+			if k != "" {
+				t.Fatalf("keyStack[%d][%d] retains %q after fallback unwind", depth, i, k)
+			}
+		}
+	}
+}
+
+func TestIsValidNumber(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"0", true},
+		{"-0", true},
+		{"42", true},
+		{"-42", true},
+		{"3.14", true},
+		{"1e10", true},
+		{"1E-10", true},
+		{"-2.5e+3", true},
+		{"0.5", true},
+		{"", false},
+		{"-", false},
+		{"01", false},
+		{"1.", false},
+		{".5", false},
+		{"1e", false},
+		{"1e+", false},
+		{"+5", false},
+		{"1.2.3", false},
+		{"abc", false},
+		{"0x10", false},
+		{"NaN", false},
+		{"Infinity", false},
+	}
+	for _, tc := range cases {
+		if got := isValidNumber(tc.in); got != tc.want {
+			t.Errorf("isValidNumber(%q) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}
