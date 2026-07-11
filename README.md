@@ -106,12 +106,19 @@ Measured on a single core (AMD Ryzen 7 3800X, `make bench`):
 | Path | Per record | Throughput | Allocations |
 |---|---|---|---|
 | Rules stage, first-rule hit | 46 ns | ~22M records/sec | 0 |
-| Rules stage, worst case (20-rule walk, regex-heavy) | 7-8 µs | ~130k records/sec | 0 |
+| Rules stage, 20-rule regex-heavy miss (benchmark ruleset) | 7-8 µs | ~130k records/sec | 0 |
 | Full pipeline (engine + rules, discard sink) | 500-550 ns | ~1.8M records/sec | 0 |
+| Integrated pipeline (text source -> rules -> JSONL sink) | ~600 ns | ~1.6M records/sec | 2 |
 
 Per-record cost depends on your ruleset: order rules by expected volume so the
-hot path exits early. The pipeline row isolates engine + rules behind a discard
-sink; the JSONL output path is benchmarked separately in `sink/jsonl`.
+hot path exits early. The miss row is the benchmark ruleset's cost, not a
+general bound: a pattern with no extractable required literal defeats the
+prefilter and every such rule pays its full regex on a miss
+(`BenchmarkClassifyRegexMissUnprefilterable`: ~101 µs at 20 rules on the same
+machine). The pipeline row isolates engine + rules behind a discard sink; the
+integrated row adds the source read and JSON encode every CLI run pays. The
+structured path (JSONL source -> field rules -> structured output) is
+benchmarked in `shared/pkg/engine` as well.
 
 The comparison that motivates the cascade: classifying 1M short log lines with
 a budget LLM API (~25 input + 5 output tokens each at $0.15/$0.60 per million

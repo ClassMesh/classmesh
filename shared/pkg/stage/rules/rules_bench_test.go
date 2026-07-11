@@ -2,10 +2,12 @@ package rules
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 
 	"github.com/ClassMesh/classmesh/shared/pkg/domain"
+	"github.com/ClassMesh/classmesh/shared/pkg/stage"
 )
 
 // benchStage builds a realistic 20-rule set: a mix of substring and regex
@@ -42,7 +44,7 @@ func benchClassify(b *testing.B, payload string) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, err := s.Classify(ctx, r)
-		if err != nil && err.Error() != "stage: unclassified" {
+		if err != nil && !errors.Is(err, stage.ErrUnclassified) {
 			b.Fatal(err)
 		}
 	}
@@ -95,7 +97,7 @@ func BenchmarkClassifyMissLiteral(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, err := s.Classify(ctx, r)
-		if err != nil && err.Error() != "stage: unclassified" {
+		if err != nil && !errors.Is(err, stage.ErrUnclassified) {
 			b.Fatal(err)
 		}
 	}
