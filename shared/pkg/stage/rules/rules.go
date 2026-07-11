@@ -15,6 +15,7 @@ import (
 	"os"
 	"reflect"
 	"regexp"
+	"regexp/syntax"
 	"strconv"
 	"strings"
 
@@ -297,7 +298,7 @@ func regexCheck(pattern, label string) (check, error) {
 	desc := fmt.Sprintf("regex %q", pattern)
 	lit, complete := re.LiteralPrefix()
 	switch {
-	case lit != "" && complete:
+	case lit != "" && complete && !hasZeroWidthAssertion(pattern):
 		b := []byte(lit)
 		return check{
 			desc:  desc,
@@ -315,6 +316,30 @@ func regexCheck(pattern, label string) (check, error) {
 			match: func(r domain.Record) bool { return re.Match(r.Data) },
 		}, nil
 	}
+}
+
+// hasZeroWidthAssertion reports whether pattern contains ^ $ \A \z \b or \B.
+// LiteralPrefix ignores these, so the substring-only fast path is unsound
+// whenever one is present.
+func hasZeroWidthAssertion(pattern string) bool {
+	re, err := syntax.Parse(pattern, syntax.Perl)
+	if err != nil {
+		return true
+	}
+	return containsAssertion(re)
+}
+
+func containsAssertion(re *syntax.Regexp) bool {
+	switch re.Op {
+	case syntax.OpBeginLine, syntax.OpEndLine, syntax.OpBeginText, syntax.OpEndText, syntax.OpWordBoundary, syntax.OpNoWordBoundary:
+		return true
+	}
+	for _, sub := range re.Sub {
+		if containsAssertion(sub) {
+			return true
+		}
+	}
+	return false
 }
 
 func groupCheck(m Matcher, label string) (check, error) {
@@ -384,7 +409,7 @@ func fieldCheck(fm FieldMatcher, label string) (check, error) {
 		desc = fmt.Sprintf("field %s matches %q", path, re.String())
 		lit, complete := re.LiteralPrefix()
 		switch {
-		case lit != "" && complete:
+		case lit != "" && complete && !hasZeroWidthAssertion(*fm.Regex):
 			pred = func(fields map[string]any) bool {
 				s, ok := lookupString(fields, segments)
 				return ok && strings.Contains(s, lit)

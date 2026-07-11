@@ -6,6 +6,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -72,6 +74,66 @@ func TestClassifyFirstMatchWins(t *testing.T) {
 
 func rec(fields map[string]any) domain.Record {
 	return domain.Record{Kind: domain.KindJSON, Fields: fields}
+}
+
+// TestClassifyAnchoredRegexDoesNotOverMatch guards the literal-prefilter fast
+// path: a fully-anchored literal pattern (^X$ / \AX\z) must match only the exact
+// string, never an arbitrary substring. re.LiteralPrefix reports complete=true
+// for these patterns yet drops the anchors, so the fast path must still confirm
+// the anchors with the compiled regex.
+func TestClassifyAnchoredRegexDoesNotOverMatch(t *testing.T) {
+	bodyCases := []struct {
+		name    string
+		pattern string
+		payload string
+		want    error
+	}{
+		{"caret-dollar exact matches", "^PING$", "PING", nil},
+		{"caret-dollar rejects substring", "^PING$", "ERROR received unexpected PING flood from 10.0.0.1", stage.ErrUnclassified},
+		{"escaped anchors exact matches", `\APING\z`, "PING", nil},
+		{"escaped anchors reject substring", `\APING\z`, "unexpected PING flood", stage.ErrUnclassified},
+		{"literal with space exact matches", "^GET /health$", "GET /health", nil},
+		{"literal with space rejects substring", "^GET /health$", "GET /health 200", stage.ErrUnclassified},
+		{"word boundary matches whole word", `\bPING\b`, "a PING b", nil},
+		{"word boundary rejects embedded word", `\bPING\b`, "aPINGb", stage.ErrUnclassified},
+		{"negated word boundary matches embedded", `\BING\B`, "aPINGb", nil},
+		{"negated word boundary rejects word edge", `\BPING\B`, "a PING b", stage.ErrUnclassified},
+	}
+	for _, tc := range bodyCases {
+		t.Run("body/"+tc.name, func(t *testing.T) {
+			yml := "rules:\n  - category: heartbeat\n    regex: [" + strconv.Quote(tc.pattern) + "]\n"
+			s := mustParse(t, yml)
+			c, err := s.Classify(context.Background(), domain.Record{Data: []byte(tc.payload)})
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("Classify(%q) err = %v, want %v", tc.payload, err, tc.want)
+			}
+			if tc.want == nil && c.Category != "heartbeat" {
+				t.Fatalf("Classify(%q) = %+v, want heartbeat", tc.payload, c)
+			}
+		})
+	}
+
+	fieldCases := []struct {
+		name  string
+		level string
+		want  error
+	}{
+		{"exact value matches", "error", nil},
+		{"substring rejected", "non-error state cleared", stage.ErrUnclassified},
+	}
+	for _, tc := range fieldCases {
+		t.Run("field/"+tc.name, func(t *testing.T) {
+			yml := "rules:\n  - category: err\n    fields:\n      - path: level\n        regex: \"^error$\"\n"
+			s := mustParse(t, yml)
+			c, err := s.Classify(context.Background(), rec(map[string]any{"level": tc.level}))
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("Classify(level=%q) err = %v, want %v", tc.level, err, tc.want)
+			}
+			if tc.want == nil && c.Category != "err" {
+				t.Fatalf("Classify(level=%q) = %+v, want err", tc.level, c)
+			}
+		})
+	}
 }
 
 func TestClassifyFieldMatchers(t *testing.T) {
@@ -440,4 +502,44 @@ func TestLookupNumberKinds(t *testing.T) {
 	if _, ok := lookupNumber(map[string]any{}, []string{"k"}); ok {
 		t.Fatal("lookupNumber() ok = true for a missing path, want false")
 	}
+}
+
+// FuzzRegexRuleParity pins the regex fast paths (prefilter, complete-literal)
+// to plain regexp behavior over arbitrary payloads.
+func FuzzRegexRuleParity(f *testing.F) {
+	patterns := []string{
+		"^PING$", `\APING\z`, `\bPING\b`, `\BING\B`, "PING", "^PING", "PING$",
+		"^GET /health$", "p[io]ng", "(warn|error) disk", "payment (failed|declined)",
+	}
+	stages := make([]stage.Stage, len(patterns))
+	regexps := make([]*regexp.Regexp, len(patterns))
+	for i, pat := range patterns {
+		yml := "rules:\n  - category: hit\n    regex: [" + strconv.Quote(pat) + "]\n"
+		st, err := Parse([]byte(yml))
+		if err != nil {
+			f.Fatalf("Parse(%q): %v", pat, err)
+		}
+		stages[i] = st
+		regexps[i] = regexp.MustCompile(pat)
+	}
+	f.Add("PING")
+	f.Add("a PING b")
+	f.Add("aPINGb")
+	f.Add("GET /health 200")
+	f.Add("payment declined for order 7")
+	f.Add("")
+	f.Fuzz(func(t *testing.T, data string) {
+		r := domain.Record{ID: "f", Data: []byte(data)}
+		for i, st := range stages {
+			_, err := st.Classify(context.Background(), r)
+			got := err == nil
+			want := regexps[i].MatchString(data)
+			if got != want {
+				t.Fatalf("pattern %q on %q: rule matched=%v, regexp matched=%v", patterns[i], data, got, want)
+			}
+			if err != nil && !errors.Is(err, stage.ErrUnclassified) {
+				t.Fatalf("pattern %q on %q: unexpected error %v", patterns[i], data, err)
+			}
+		}
+	})
 }

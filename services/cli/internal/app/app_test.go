@@ -192,6 +192,60 @@ func TestRunRejectsReviewEqualToInput(t *testing.T) {
 	}
 }
 
+func TestRunRejectsReviewAliasingInput(t *testing.T) {
+	const content = "GET /healthz 200\npayment failed for user 42\n"
+	cases := []struct {
+		name   string
+		review func(dir, input string) string // maps the real input path to an aliased review spelling
+	}{
+		{"dot-slash prefix", func(_, input string) string { return "." + string(filepath.Separator) + filepath.Base(input) }},
+		{"absolute spelling", func(_, input string) string { return input }},
+		{"symlink to input", func(dir, input string) string {
+			link := filepath.Join(dir, "link.log")
+			if err := os.Symlink(input, link); err != nil {
+				t.Skipf("symlink unsupported: %v", err)
+			}
+			return link
+		}},
+		{"hard link to input", func(dir, input string) string {
+			link := filepath.Join(dir, "hard.log")
+			if err := os.Link(input, link); err != nil {
+				t.Skipf("hard link unsupported: %v", err)
+			}
+			return link
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			rulesPath := writeFile(t, dir, "rules.yml", testRules)
+			input := writeFile(t, dir, "in.log", content)
+			review := tc.review(dir, input)
+
+			// Run from the input's directory so a bare-basename input path resolves there.
+			cwd, err := os.Getwd()
+			if err != nil {
+				t.Fatalf("getwd: %v", err)
+			}
+			if err := os.Chdir(dir); err != nil {
+				t.Fatalf("chdir: %v", err)
+			}
+			t.Cleanup(func() { _ = os.Chdir(cwd) })
+
+			var out, errOut bytes.Buffer
+			runErr := Run(context.Background(),
+				[]string{"run", "--rules", rulesPath, "--review", review, filepath.Base(input)},
+				Streams{In: strings.NewReader(""), Out: &out, Err: &errOut})
+			if runErr == nil || !strings.Contains(runErr.Error(), "also an input") {
+				t.Fatalf("Run() error = %v, want a review/input conflict error", runErr)
+			}
+			if data, _ := os.ReadFile(input); string(data) != content {
+				t.Fatalf("input file was truncated to %q; the aliased review path must not zero the input", data)
+			}
+		})
+	}
+}
+
 func TestRunRequiresRulesFlag(t *testing.T) {
 	var out, errOut bytes.Buffer
 	err := Run(context.Background(), []string{"run"},
@@ -240,5 +294,61 @@ func TestRunRejectsInvalidMinConfidence(t *testing.T) {
 		Streams{In: strings.NewReader("x\n"), Out: &out, Err: &errOut})
 	if err == nil || !strings.Contains(err.Error(), "min confidence") {
 		t.Fatalf("Run() error = %v, want min confidence validation error", err)
+	}
+}
+
+func TestRunRejectsReviewAliasingRulesFile(t *testing.T) {
+	dir := t.TempDir()
+	rulesPath := writeFile(t, dir, "rules.yml", testRules)
+	input := writeFile(t, dir, "in.log", "GET /healthz 200\n")
+	rulesContent, err := os.ReadFile(rulesPath)
+	if err != nil {
+		t.Fatalf("read rules: %v", err)
+	}
+
+	link := filepath.Join(dir, "rules-link.yml")
+	if err := os.Link(rulesPath, link); err != nil {
+		if err = os.Symlink(rulesPath, link); err != nil {
+			t.Skipf("hard link and symlink unsupported: %v", err)
+		}
+	}
+	for _, review := range []string{rulesPath, link} {
+		var out, errOut bytes.Buffer
+		runErr := Run(context.Background(),
+			[]string{"run", "--rules", rulesPath, "--review", review, input},
+			Streams{In: strings.NewReader(""), Out: &out, Err: &errOut})
+		if runErr == nil || !strings.Contains(runErr.Error(), "also the rules file") {
+			t.Fatalf("Run(review=%q) error = %v, want a review/rules conflict error", review, runErr)
+		}
+		if data, _ := os.ReadFile(rulesPath); string(data) != string(rulesContent) {
+			t.Fatalf("rules file was truncated to %q", data)
+		}
+	}
+}
+
+func TestConfigRejectsOutputHardLinkedToInput(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "rules.yml", testRules)
+	input := writeFile(t, dir, "in.log", "GET /healthz 200\n")
+	link := filepath.Join(dir, "out.jsonl")
+	if err := os.Link(input, link); err != nil {
+		t.Skipf("hard link unsupported: %v", err)
+	}
+	cfgPath := writeFile(t, dir, "cfg.yaml", `version: 1
+input: { type: text }
+stages:
+  - { id: rules, type: rules, path: rules.yml, gate: 1.0 }
+sink: { type: jsonl, path: out.jsonl }
+`)
+
+	var out, errOut bytes.Buffer
+	runErr := Run(context.Background(),
+		[]string{"run", "--config", cfgPath, input},
+		Streams{In: strings.NewReader(""), Out: &out, Err: &errOut})
+	if runErr == nil || !strings.Contains(runErr.Error(), "collides") {
+		t.Fatalf("Run() error = %v, want an output collision error", runErr)
+	}
+	if data, _ := os.ReadFile(input); string(data) != "GET /healthz 200\n" {
+		t.Fatalf("input file was truncated to %q", data)
 	}
 }

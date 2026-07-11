@@ -153,6 +153,9 @@ func (c *Config) Validate() error {
 	if err := c.Sink.validate("sink"); err != nil {
 		return err
 	}
+	if c.Sink.Type == "drop" {
+		return errors.New("config: the default sink cannot be drop")
+	}
 	for category, sk := range c.Routes {
 		if category == "" {
 			return errors.New("config: a route category must not be empty")
