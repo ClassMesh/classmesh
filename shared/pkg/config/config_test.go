@@ -44,6 +44,7 @@ func TestValidate(t *testing.T) {
 		}, "either path or stream"},
 		{"bad stream", func(c *config.Config) { c.Sink = config.SinkSpec{Type: "jsonl", Stream: "socket"} }, "stream"},
 		{"drop sink with target", func(c *config.Config) { c.Sink = config.SinkSpec{Type: "drop", Path: "x"} }, "takes no path"},
+		{"drop default sink", func(c *config.Config) { c.Sink = config.SinkSpec{Type: "drop"} }, "default sink cannot be drop"},
 		{"empty route category", func(c *config.Config) {
 			c.Routes = map[string]config.SinkSpec{"": {Type: "drop"}}
 		}, "route category must not be empty"},

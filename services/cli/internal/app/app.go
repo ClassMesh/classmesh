@@ -170,9 +170,14 @@ func runPipeline(ctx context.Context, args []string, s Streams) (err error) {
 			usage(s.Err)
 			return fmt.Errorf("run: --input must be text or jsonl, got %q", *input)
 		}
-		for _, path := range inputs {
-			if path == *reviewPath {
-				return fmt.Errorf("run: --review path %q is also an input file", *reviewPath)
+		if *reviewPath != "" {
+			if samePath(*reviewPath, *rulesPath) {
+				return fmt.Errorf("run: --review path %q is also the rules file", *reviewPath)
+			}
+			for _, path := range inputs {
+				if samePath(*reviewPath, path) {
+					return fmt.Errorf("run: --review path %q is also an input file", *reviewPath)
+				}
 			}
 		}
 		ruleStage, lerr := rules.Load(*rulesPath)
@@ -316,13 +321,10 @@ func buildFromConfig(path string, s Streams, inputs []string, cleanup *[]func() 
 // checkOutputPaths rejects a config whose file sinks collide with an input file
 // or with each other, before anything is opened and truncated.
 func checkOutputPaths(cfg *config.Config, configPath, base string, inputs []string) error {
-	protected := map[string]bool{normPath(configPath): true}
-	for _, in := range inputs {
-		protected[normPath(in)] = true
-	}
+	protected := append([]string{configPath}, inputs...)
 	for _, sp := range cfg.Stages {
 		if sp.Path != "" {
-			protected[normPath(resolve(base, sp.Path))] = true
+			protected = append(protected, resolve(base, sp.Path))
 		}
 	}
 	specs := []config.SinkSpec{cfg.Sink}
@@ -341,21 +343,37 @@ func checkOutputPaths(cfg *config.Config, configPath, base string, inputs []stri
 	if stdouts > 1 {
 		return errors.New("run: two sinks write to stdout")
 	}
-	outs := make(map[string]bool)
+	var outs []string
 	for _, sp := range specs {
 		if sp.Type != "jsonl" || sp.Path == "" {
 			continue
 		}
-		key := normPath(resolve(base, sp.Path))
-		if protected[key] {
-			return fmt.Errorf("run: config output %q collides with an input, the config, or a stage declaration file", sp.Path)
+		p := resolve(base, sp.Path)
+		for _, pr := range protected {
+			if samePath(p, pr) {
+				return fmt.Errorf("run: config output %q collides with an input, the config, or a stage declaration file", sp.Path)
+			}
 		}
-		if outs[key] {
-			return fmt.Errorf("run: config writes %q more than once", sp.Path)
+		for _, o := range outs {
+			if samePath(p, o) {
+				return fmt.Errorf("run: config writes %q more than once", sp.Path)
+			}
 		}
-		outs[key] = true
+		outs = append(outs, p)
 	}
 	return nil
+}
+
+// samePath reports whether a and b name the same file: by filesystem identity
+// when both exist (catches hard links and case aliases), by normalized path
+// otherwise.
+func samePath(a, b string) bool {
+	ia, errA := os.Stat(a)
+	ib, errB := os.Stat(b)
+	if errA == nil && errB == nil {
+		return os.SameFile(ia, ib)
+	}
+	return normPath(a) == normPath(b)
 }
 
 // normPath resolves p to an absolute, symlink-resolved path so two spellings of
