@@ -31,6 +31,10 @@ type Sink struct {
 	buf  []byte
 	keys []string
 
+	// keyStack holds one reusable sorted-key buffer per Fields nesting depth,
+	// so the hand-rolled object encoder sorts keys without per-record allocs.
+	keyStack [][]string
+
 	fieldsBuf bytes.Buffer
 	fieldsEnc *json.Encoder
 }
@@ -79,11 +83,11 @@ func (s *Sink) appendRecord(b []byte, r domain.Record, c domain.Classification) 
 	b = appendStringBytes(b, r.Data)
 	if len(r.Fields) > 0 {
 		b = append(b, `,"fields":`...)
-		fields, err := s.encodeFields(r.Fields)
+		nb, err := s.appendFields(b, r.Fields)
 		if err != nil {
 			return nil, err
 		}
-		b = append(b, fields...)
+		b = nb
 	}
 	if len(r.Meta) > 0 {
 		b = append(b, `,"meta":`...)
@@ -119,14 +123,168 @@ func (s *Sink) appendRecord(b []byte, r domain.Record, c domain.Classification) 
 	return append(b, '}', '\n'), nil
 }
 
-// encodeFields serializes the free-form Fields map through encoding/json
-// (sorted keys, json.Number passthrough) into a reused scratch buffer.
-func (s *Sink) encodeFields(fields map[string]any) ([]byte, error) {
+// maxFastDepth bounds fast-path recursion over objects and arrays; deeper or
+// cyclic values fall back to encoding/json instead of overflowing the stack.
+const maxFastDepth = 64
+
+// appendFields emits Fields via the 0-alloc fast path when it can prove
+// byte-equality with encoding/json; anything else rewinds b and defers to
+// encoding/json for identical bytes or the reference error.
+func (s *Sink) appendFields(b []byte, fields map[string]any) ([]byte, error) {
+	saved := len(b)
+	if nb, ok := s.appendObject(b, fields, 0); ok {
+		return nb, nil
+	}
+	b = b[:saved]
 	s.fieldsBuf.Reset()
 	if err := s.fieldsEnc.Encode(fields); err != nil {
 		return nil, err
 	}
-	return bytes.TrimSuffix(s.fieldsBuf.Bytes(), []byte("\n")), nil
+	return append(b, bytes.TrimSuffix(s.fieldsBuf.Bytes(), []byte("\n"))...), nil
+}
+
+// appendObject emits m with sorted keys, matching encoding/json's ordering.
+// depth counts every nesting level and doubles as the per-depth key-buffer
+// index; buffers are released on every exit so caller keys are not retained.
+func (s *Sink) appendObject(b []byte, m map[string]any, depth int) ([]byte, bool) {
+	if depth >= maxFastDepth {
+		return b, false
+	}
+	for len(s.keyStack) <= depth {
+		s.keyStack = append(s.keyStack, nil)
+	}
+	keys := s.keyStack[depth][:0]
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	s.keyStack[depth] = keys
+	b = append(b, '{')
+	for i, k := range keys {
+		if i > 0 {
+			b = append(b, ',')
+		}
+		b = appendString(b, k)
+		b = append(b, ':')
+		nb, ok := s.appendValue(b, m[k], depth+1)
+		if !ok {
+			s.releaseKeys(depth)
+			return b, false
+		}
+		b = nb
+	}
+	s.releaseKeys(depth)
+	return append(b, '}'), true
+}
+
+// releaseKeys zeroes the key buffer at depth, keeping its capacity.
+func (s *Sink) releaseKeys(depth int) {
+	keys := s.keyStack[depth]
+	for i := range keys {
+		keys[i] = ""
+	}
+	s.keyStack[depth] = keys[:0]
+}
+
+// appendArray emits elements one level deeper, so array nesting counts against
+// maxFastDepth like object nesting (a cyclic slice must not recurse forever).
+func (s *Sink) appendArray(b []byte, a []any, depth int) ([]byte, bool) {
+	if depth >= maxFastDepth {
+		return b, false
+	}
+	b = append(b, '[')
+	for i, v := range a {
+		if i > 0 {
+			b = append(b, ',')
+		}
+		nb, ok := s.appendValue(b, v, depth+1)
+		if !ok {
+			return b, false
+		}
+		b = nb
+	}
+	return append(b, ']'), true
+}
+
+// appendValue encodes one Fields value, returning ok=false for anything not in
+// the confirmed source universe (string, json.Number, bool, nil, map, slice)
+// plus float64, so the caller can rewind and defer to encoding/json.
+func (s *Sink) appendValue(b []byte, v any, depth int) ([]byte, bool) {
+	switch val := v.(type) {
+	case nil:
+		return append(b, "null"...), true
+	case bool:
+		if val {
+			return append(b, "true"...), true
+		}
+		return append(b, "false"...), true
+	case string:
+		return appendString(b, val), true
+	case json.Number:
+		num := string(val)
+		if num == "" {
+			num = "0"
+		}
+		if !isValidNumber(num) {
+			return b, false
+		}
+		return append(b, num...), true
+	case float64:
+		if math.IsNaN(val) || math.IsInf(val, 0) {
+			return b, false
+		}
+		return appendFloat(b, val), true
+	case map[string]any:
+		return s.appendObject(b, val, depth)
+	case []any:
+		return s.appendArray(b, val, depth)
+	default:
+		return b, false
+	}
+}
+
+// isValidNumber reports whether s is a valid JSON number literal, copied from
+// encoding/json so json.Number passthrough matches the reference exactly.
+func isValidNumber(s string) bool {
+	if s == "" {
+		return false
+	}
+	if s[0] == '-' {
+		s = s[1:]
+		if s == "" {
+			return false
+		}
+	}
+	switch {
+	default:
+		return false
+	case s[0] == '0':
+		s = s[1:]
+	case '1' <= s[0] && s[0] <= '9':
+		s = s[1:]
+		for len(s) > 0 && '0' <= s[0] && s[0] <= '9' {
+			s = s[1:]
+		}
+	}
+	if len(s) >= 2 && s[0] == '.' && '0' <= s[1] && s[1] <= '9' {
+		s = s[2:]
+		for len(s) > 0 && '0' <= s[0] && s[0] <= '9' {
+			s = s[1:]
+		}
+	}
+	if len(s) >= 2 && (s[0] == 'e' || s[0] == 'E') {
+		s = s[1:]
+		if s[0] == '+' || s[0] == '-' {
+			s = s[1:]
+			if s == "" {
+				return false
+			}
+		}
+		for len(s) > 0 && '0' <= s[0] && s[0] <= '9' {
+			s = s[1:]
+		}
+	}
+	return s == ""
 }
 
 // appendMeta serializes the string map with sorted keys, matching
