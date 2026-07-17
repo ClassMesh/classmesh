@@ -32,6 +32,15 @@ jobs:
         run: |
           go mod tidy
           git diff --exit-code -- go.mod go.sum
+      - name: External identity proof from clean caches
+        env:
+          GOCACHE: ${{ runner.temp }}/classmesh-proof-build
+          GOMODCACHE: ${{ runner.temp }}/classmesh-proof-mod
+          GOFLAGS: ""
+          GOWORK: "off"
+        run: |
+          go test -count=1 -run 'Test(DependencyMatrix|ExternalConsumerFixture|InternalPackageBoundary|MinimalConsumerLinkage)$' .
+          go test -count=1 -run TestCLIGoldens ./internal/cli
       - name: Vet
         run: go vet ./...
       - name: Build (cgo-free) and assert static linking

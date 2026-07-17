@@ -4,3 +4,5 @@ coverage.out
 prod.log
 classified.jsonl
 examples/review.jsonl
+fixtures/consumer/internalimport
+fixtures/consumer/minimal
