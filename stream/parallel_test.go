@@ -11,7 +11,7 @@ import (
 	"time"
 
 	domain "github.com/ClassMesh/classmesh"
-	"github.com/ClassMesh/classmesh/shared/pkg/stage"
+	stage "github.com/ClassMesh/classmesh/internal/testkit"
 	"github.com/ClassMesh/classmesh/stream/sink"
 	"github.com/ClassMesh/classmesh/stream/source"
 )

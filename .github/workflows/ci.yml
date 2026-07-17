@@ -26,20 +26,21 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: |
+            go.sum
             shared/go.sum
             services/cli/go.sum
       - name: Verify module checksums
-        run: make verify
+        run: go mod verify
       - name: Tidy drift check
         run: |
-          make tidy
-          git diff --exit-code -- '**/go.mod' '**/go.sum'
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
       - name: Vet
-        run: make vet
+        run: go vet ./...
       - name: Build (cgo-free) and assert static linking
         run: make cgo-check
       - name: Test with coverage
-        run: make coverage
+        run: go test -race -count=1 -coverprofile=coverage.out -covermode=atomic ./...
       - name: Upload coverage
         uses: actions/upload-artifact@v4
         with:
@@ -51,7 +52,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        module: [shared, services/cli]
+        module: ["."]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -73,11 +74,10 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: |
+            go.sum
             shared/go.sum
             services/cli/go.sum
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@v1.5.0
       - name: Scan modules
-        run: |
-          cd shared && govulncheck ./...
-          cd ../services/cli && govulncheck ./...
+        run: govulncheck ./...

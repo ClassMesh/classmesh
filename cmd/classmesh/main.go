@@ -9,7 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/ClassMesh/classmesh/services/cli/internal/app"
+	"github.com/ClassMesh/classmesh/internal/cli"
 )
 
 func main() {
@@ -20,7 +20,7 @@ func run() int {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	err := app.Run(ctx, os.Args[1:], app.Streams{In: os.Stdin, Out: os.Stdout, Err: os.Stderr})
+	err := cli.Run(ctx, os.Args[1:], cli.Streams{In: os.Stdin, Out: os.Stdout, Err: os.Stderr})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "classmesh: %v\n", err)
 		return 1

@@ -9,16 +9,16 @@ COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 DATE    := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
 LDFLAGS := -s -w \
-           -X github.com/ClassMesh/classmesh/shared/pkg/version.Version=$(VERSION) \
-           -X github.com/ClassMesh/classmesh/shared/pkg/version.Commit=$(COMMIT) \
-           -X github.com/ClassMesh/classmesh/shared/pkg/version.Date=$(DATE)
+           -X github.com/ClassMesh/classmesh/internal/version.Version=$(VERSION) \
+           -X github.com/ClassMesh/classmesh/internal/version.Commit=$(COMMIT) \
+           -X github.com/ClassMesh/classmesh/internal/version.Date=$(DATE)
 
 .PHONY: build cgo-check test coverage vet fmt tidy verify lint vuln clean
 
 ## build: compile every service binary into ./bin (cgo-free, single static binary)
 build:
 	mkdir -p $(BIN)
-	CGO_ENABLED=0 go build -ldflags '$(LDFLAGS)' -o $(BIN)/classmesh ./services/cli/cmd/classmesh
+	CGO_ENABLED=0 go build -ldflags '$(LDFLAGS)' -o $(BIN)/classmesh ./cmd/classmesh
 
 ## cgo-check: assert the shipped binary built cgo-free: statically linked, no C deps.
 ## (`-race` tests still need cgo, so the guarantee is enforced on the artifact, not the test harness.)

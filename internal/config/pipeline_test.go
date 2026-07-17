@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ClassMesh/classmesh/shared/pkg/config"
+	"github.com/ClassMesh/classmesh/internal/config"
 )
 
 func base() config.Config {

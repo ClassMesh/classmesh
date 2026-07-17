@@ -1,8 +1,5 @@
-// Package mock implements a classmesh.Stage that stands in for a model: it emits
-// declared confidences below 1.0 so gates, escalation, and review routing can
-// be exercised end to end before a real model stage exists. Matching is
-// deterministic (payload substrings), so runs are reproducible.
-package mock
+// Package mockstage implements the internal deterministic mock stage.
+package mockstage
 
 import (
 	"bytes"
@@ -18,23 +15,23 @@ const Name = "mock"
 
 // Outcome is a category scored with a fixed confidence.
 type Outcome struct {
-	Category   string  `yaml:"category"`
-	Confidence float64 `yaml:"confidence"`
+	Category   string
+	Confidence float64
 }
 
 // Matcher scores records whose payload contains any of the substrings.
 type Matcher struct {
-	Contains   []string `yaml:"contains"`
-	Category   string   `yaml:"category"`
-	Confidence float64  `yaml:"confidence"`
+	Contains   []string
+	Category   string
+	Confidence float64
 }
 
 // Config declares a mock stage: ordered matchers tried first-match-wins, and
 // an optional default outcome for records no matcher hits. Without a default,
 // unmatched records escalate with ErrUnclassified.
 type Config struct {
-	Matchers []Matcher `yaml:"matchers"`
-	Default  *Outcome  `yaml:"default"`
+	Matchers []Matcher
+	Default  *Outcome
 }
 
 type compiledMatcher struct {

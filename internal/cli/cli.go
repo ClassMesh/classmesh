@@ -1,5 +1,5 @@
-// Package app wires sources, stages, and sinks into the classmesh CLI.
-package app
+// Package cli wires sources, stages, and sinks into the classmesh CLI.
+package cli
 
 import (
 	"context"
@@ -12,10 +12,8 @@ import (
 	"path/filepath"
 
 	"github.com/ClassMesh/classmesh"
-	stageconfig "github.com/ClassMesh/classmesh/internal/config"
-	"github.com/ClassMesh/classmesh/shared/pkg/config"
-	"github.com/ClassMesh/classmesh/shared/pkg/stage/mock"
-	"github.com/ClassMesh/classmesh/shared/pkg/version"
+	"github.com/ClassMesh/classmesh/internal/config"
+	"github.com/ClassMesh/classmesh/internal/version"
 	"github.com/ClassMesh/classmesh/stream"
 	"github.com/ClassMesh/classmesh/stream/sink"
 	"github.com/ClassMesh/classmesh/stream/sink/jsonl"
@@ -179,7 +177,7 @@ func runPipeline(ctx context.Context, args []string, s Streams) (err error) {
 				}
 			}
 		}
-		ruleStage, lerr := stageconfig.LoadRules(*rulesPath)
+		ruleStage, lerr := config.LoadRules(*rulesPath)
 		if lerr != nil {
 			return lerr
 		}
@@ -432,11 +430,11 @@ func stagesFromConfig(cfg *config.Config, base string) ([]classmesh.Stage, error
 func buildStage(sp config.StageSpec, base string) (classmesh.Stage, error) {
 	switch sp.Type {
 	case "rules":
-		return stageconfig.LoadRules(resolve(base, sp.Path))
+		return config.LoadRules(resolve(base, sp.Path))
 	case "schema":
-		return stageconfig.LoadSchema(resolve(base, sp.Path))
+		return config.LoadSchema(resolve(base, sp.Path))
 	case "mock":
-		return mock.Load(resolve(base, sp.Path))
+		return config.LoadMock(resolve(base, sp.Path))
 	default:
 		return nil, fmt.Errorf("run: stage %q: type %q is not yet runnable from a config", sp.ID, sp.Type)
 	}

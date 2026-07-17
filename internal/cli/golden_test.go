@@ -1,4 +1,4 @@
-package app
+package cli
 
 import (
 	"bytes"
@@ -17,7 +17,7 @@ func examplePath(t *testing.T, name string) string {
 	if !ok {
 		t.Fatal("runtime.Caller failed")
 	}
-	return filepath.Join(filepath.Dir(self), "..", "..", "..", "..", "examples", name)
+	return filepath.Join(filepath.Dir(self), "..", "..", "examples", name)
 }
 
 // TestExamplesGolden runs the shipped example inputs through the CLI and checks
