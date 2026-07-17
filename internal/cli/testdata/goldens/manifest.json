@@ -1,0 +1,14 @@
+[
+  {"name":"01-noargs"},
+  {"name":"02-version","args":["version"]},
+  {"name":"03-run-rules-text","args":["run","--rules","examples/rules.yml","examples/logs.txt"]},
+  {"name":"04-run-rules-jsonl","args":["run","--rules","examples/rules.yml","--input","jsonl","examples/events.jsonl"]},
+  {"name":"05-validate","args":["validate","--config","examples/classmesh.yaml"]},
+  {"name":"06-run-config","args":["run","--config","examples/classmesh.yaml","examples/logs.txt"],"created":{"examples/review.jsonl":"07-review-file.jsonl"}},
+  {"name":"07-run-review","args":["run","--rules","examples/rules.yml","--review","review.jsonl","examples/logs.txt"],"created":{"review.jsonl":"07-review-file.jsonl"}},
+  {"name":"08-run-workers8","args":["run","--rules","examples/rules.yml","--workers","8","examples/logs.txt"]},
+  {"name":"09-err-missing-rules","args":["run","--rules","/nonexistent.yml"]},
+  {"name":"10-err-validate-noconfig","args":["validate"]},
+  {"name":"11-run-minconf","args":["run","--rules","examples/rules.yml","--min-confidence","0.9","examples/logs.txt"]},
+  {"name":"12-run-stdin","args":["run","--rules","examples/rules.yml"],"stdin":"examples/logs.txt"}
+]

@@ -1,0 +1,3 @@
+{"id":"examples/logs.txt:1","data":"GET /healthz 200","category":"noise","confidence":1,"stage":"rules","reasons":[{"code":"health-noise","detail":"contains \"/healthz\" or contains \"/readiness\""}]}
+{"id":"examples/logs.txt:2","data":"payment declined for order 7","category":"billing","confidence":1,"stage":"rules","reasons":[{"code":"payment-failure","detail":"regex \"payment (failed|declined)\""}]}
+{"id":"examples/logs.txt:3","data":"blocked: unauthorized token for user 42","category":"auth","confidence":1,"stage":"rules","reasons":[{"code":"auth-signal","detail":"any(contains \"unauthorized\" or field event == \"login_failed\")"}]}

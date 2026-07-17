@@ -1,0 +1,2 @@
+time=2026-07-17T04:18:05.320+03:00 level=WARN msg="records unclassified and dropped; logging the first, see stats for the total" record=examples/logs.txt:4
+processed=4 classified=3 review=1 by_stage=map[rules:3]

@@ -1,11 +1,44 @@
 # ClassMesh
 
-High-throughput classification pipeline for streams and files. Deterministic rules first, small in-process models next, expensive calls only for what's left. One Go binary.
+ClassMesh is a Go library for building high-throughput, confidence-gated classification cascades over payload-agnostic records. The classmesh command is its reference application and operational tool.
 
-> **Status:** v0.1.0, working toward v1. Rules, schema, and cascade config work
+> **Status:** pre-v1. Rules, schema, and cascade configuration work
 > end to end (`make test` passes, the examples below run as documented, and the
-> parallel engine is merged). A real model stage is next; a deterministic mock
-> stands in until it lands.
+> parallel engine is available). The CLI configuration includes a deterministic
+> mock stage for exercising gates and review routing.
+
+## Use as a library
+
+Create stages, put them in a `classmesh.Cascade`, and classify one record at a
+time. This example uses the programmatic rules package, so it does not need YAML
+configuration:
+
+```go
+ruleStage, err := rules.New([]rules.Rule{
+    {
+        ID:       "question-terminal",
+        Category: "question",
+        Regex:    []string{`[?？]['")\]}»’”›]*$`},
+    },
+})
+if err != nil {
+    return err
+}
+
+mesh, err := classmesh.New(ruleStage)
+if err != nil {
+    return err
+}
+
+result, err := mesh.Classify(context.Background(), classmesh.Record{
+    ID:   "sentence-1",
+    Kind: classmesh.KindText,
+    Data: []byte("Ready?"),
+})
+```
+
+See the complete runnable program in [`examples/library`](examples/library),
+then run it in module mode with `GOWORK=off go run ./examples/library`.
 
 ## Why
 
@@ -14,24 +47,34 @@ Classifying high-volume data (logs, events, records) with an LLM per record is s
 ## Design
 
 ```
-source -> [ stage 1: rules ] -> [ stage 2: model ] -> [ stage N ] -> sink
-               │ confident?          │ confident?
-               └── exit early ───────┴── exit early    uncertain -> review sink
+source -> [ stage 1: rules ] -> [ stage 2: custom ] -> [ stage N ] -> sink
+               │ confident?           │ confident?
+               └── exit early ────────┴── exit early    uncertain -> review sink
 ```
 
-Everything is an interface: input sources, classification stages, and output sinks are pluggable modules. Today: text files, JSONL event streams, and stdin. Tomorrow: whatever implements `Source`.
+The root library accepts any implementation of `classmesh.Stage`. The optional
+streaming tier also exposes source and sink interfaces. Today it includes text
+files, JSONL event streams, stdin adapters, in-memory adapters, and JSONL sinks.
 
-For working examples of each contract, see [`textfile`](shared/pkg/source/textfile) (a `Source`), [`rules`](shared/pkg/stage/rules) (a `Stage`), and [`jsonl`](shared/pkg/sink/jsonl) (a `Sink`). [`docs/architecture.md`](docs/architecture.md) explains how the pieces fit and why the core stays payload-agnostic.
+For working implementations, see [`text`](stream/source/text) (a `Source`),
+[`rules`](rules) (a `Stage`), and [`jsonl`](stream/sink/jsonl) (a `Sink`).
+[`docs/architecture.md`](docs/architecture.md) explains how the pieces fit and
+why the core stays payload-agnostic.
 
 ## Layout
 
-- `shared/`: domain types and the contracts ([`source`](shared/pkg/source), [`stage`](shared/pkg/stage), [`sink`](shared/pkg/sink)) with in-memory implementations for testing
-- `services/cli/`: the `classmesh` binary
+- Root `classmesh`: records, classifications, stages, gates, and `Cascade`
+- [`rules/`](rules) and [`schema/`](schema): programmatic built-in stages
+- [`stream/`](stream): optional engine, sources, sinks, and routing
+- [`internal/`](internal): CLI configuration and implementation details
+- [`cmd/classmesh/`](cmd/classmesh): the reference command
+- [`examples/`](examples): embedded-library and CLI examples
 
-## Examples
+## Use the CLI
 
-Runnable examples live in [`examples/`](examples): one ruleset that classifies
-both text logs and JSON events. Every block below runs from a fresh clone.
+The CLI is distributed as one cgo-free Go binary. Runnable examples live in
+[`examples/`](examples): one ruleset classifies both text logs and JSON events.
+Every block below runs from a fresh clone.
 
 ```
 make build
@@ -118,7 +161,7 @@ prefilter and every such rule pays its full regex on a miss
 machine). The pipeline row isolates engine + rules behind a discard sink; the
 integrated row adds the source read and JSON encode every CLI run pays. The
 structured path (JSONL source -> field rules -> structured output) is
-benchmarked in `shared/pkg/engine` as well.
+benchmarked in `stream` as well.
 
 The comparison that motivates the cascade: classifying 1M short log lines with
 a budget LLM API (~25 input + 5 output tokens each at $0.15/$0.60 per million
@@ -137,7 +180,7 @@ classify in under a second, including JSON output.
 ```
 make build   # compile binaries into ./bin
 make test    # run all tests with -race
-make lint    # golangci-lint across all modules
+make lint    # run golangci-lint from the module root
 ```
 
 ## License

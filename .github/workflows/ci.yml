@@ -25,21 +25,28 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: |
-            shared/go.sum
-            services/cli/go.sum
+          cache-dependency-path: go.sum
       - name: Verify module checksums
-        run: make verify
+        run: go mod verify
       - name: Tidy drift check
         run: |
-          make tidy
-          git diff --exit-code -- '**/go.mod' '**/go.sum'
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+      - name: External identity proof from clean caches
+        env:
+          GOCACHE: ${{ runner.temp }}/classmesh-proof-build
+          GOMODCACHE: ${{ runner.temp }}/classmesh-proof-mod
+          GOFLAGS: ""
+          GOWORK: "off"
+        run: |
+          go test -count=1 -run 'Test(DependencyMatrix|ExternalConsumerFixture|InternalPackageBoundary|MinimalConsumerLinkage)$' .
+          go test -count=1 -run TestCLIGoldens ./internal/cli
       - name: Vet
-        run: make vet
+        run: go vet ./...
       - name: Build (cgo-free) and assert static linking
         run: make cgo-check
       - name: Test with coverage
-        run: make coverage
+        run: go test -race -count=1 -coverprofile=coverage.out -covermode=atomic ./...
       - name: Upload coverage
         uses: actions/upload-artifact@v4
         with:
@@ -49,9 +56,6 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        module: [shared, services/cli]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -61,7 +65,6 @@ jobs:
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
-          working-directory: ${{ matrix.module }}
           args: --config=${{ github.workspace }}/.golangci.yml
 
   vuln:
@@ -72,12 +75,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: |
-            shared/go.sum
-            services/cli/go.sum
+          cache-dependency-path: go.sum
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@v1.5.0
-      - name: Scan modules
-        run: |
-          cd shared && govulncheck ./...
-          cd ../services/cli && govulncheck ./...
+      - name: Scan module
+        run: govulncheck ./...

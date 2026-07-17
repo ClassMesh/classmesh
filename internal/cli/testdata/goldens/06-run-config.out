@@ -1,0 +1,2 @@
+{"id":"examples/logs.txt:2","data":"payment declined for order 7","category":"billing","confidence":1,"stage":"rules","reasons":[{"code":"payment-event","detail":"regex \"payment (succeeded|declined|failed)\""}]}
+{"id":"examples/logs.txt:3","data":"blocked: unauthorized token for user 42","category":"auth","confidence":1,"stage":"rules","reasons":[{"code":"auth-signal","detail":"any(contains \"unauthorized\" or contains \"login failed\" or contains \"rate limited\")"}]}

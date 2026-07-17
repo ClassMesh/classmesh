@@ -1,24 +1,23 @@
 SHELL := /bin/bash
 
-MODULES := shared services/cli
-PKGS    := ./shared/... ./services/cli/...
-BIN     := bin
+PKGS := ./...
+BIN  := bin
 
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  := $(shell git rev-parse --short HEAD 2>/dev/null || echo none)
 DATE    := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
 LDFLAGS := -s -w \
-           -X github.com/ClassMesh/classmesh/shared/pkg/version.Version=$(VERSION) \
-           -X github.com/ClassMesh/classmesh/shared/pkg/version.Commit=$(COMMIT) \
-           -X github.com/ClassMesh/classmesh/shared/pkg/version.Date=$(DATE)
+           -X github.com/ClassMesh/classmesh/internal/version.Version=$(VERSION) \
+           -X github.com/ClassMesh/classmesh/internal/version.Commit=$(COMMIT) \
+           -X github.com/ClassMesh/classmesh/internal/version.Date=$(DATE)
 
-.PHONY: build cgo-check test coverage vet fmt tidy verify lint vuln clean
+.PHONY: build cgo-check test coverage vet fmt tidy verify lint vuln bench clean
 
-## build: compile every service binary into ./bin (cgo-free, single static binary)
+## build: compile the reference CLI into ./bin as one cgo-free static binary
 build:
 	mkdir -p $(BIN)
-	CGO_ENABLED=0 go build -ldflags '$(LDFLAGS)' -o $(BIN)/classmesh ./services/cli/cmd/classmesh
+	CGO_ENABLED=0 go build -ldflags '$(LDFLAGS)' -o $(BIN)/classmesh ./cmd/classmesh
 
 ## cgo-check: assert the shipped binary built cgo-free: statically linked, no C deps.
 ## (`-race` tests still need cgo, so the guarantee is enforced on the artifact, not the test harness.)
@@ -30,7 +29,7 @@ cgo-check: build
 	  file $(BIN)/classmesh; exit 1; \
 	fi
 
-## test: run every test in every workspace module with the race detector
+## test: run every test in the module with the race detector
 test:
 	go test -race -count=1 $(PKGS)
 
@@ -38,34 +37,34 @@ test:
 coverage:
 	go test -race -count=1 -coverprofile=coverage.out -covermode=atomic $(PKGS)
 
-## vet: static analysis across every workspace module
+## vet: static analysis across the module
 vet:
 	go vet $(PKGS)
 
-## fmt: format every Go file in the workspace
+## fmt: format every Go file in the module
 fmt:
-	gofmt -w -l shared services
+	go fmt ./...
 
-## tidy: run go mod tidy in every module
+## tidy: synchronize the root module dependency files
 tidy:
-	@for m in $(MODULES); do (cd $$m && go mod tidy); done
+	go mod tidy
 
-## verify: verify module checksums in every module
+## verify: verify root module checksums
 verify:
-	@for m in $(MODULES); do (cd $$m && go mod verify); done
+	go mod verify
 
-## lint: run golangci-lint in every module
+## lint: run golangci-lint once from the module root
 lint:
-	@for m in $(MODULES); do (cd $$m && golangci-lint run --config=$(CURDIR)/.golangci.yml ./...); done
+	golangci-lint run --config=$(CURDIR)/.golangci.yml ./...
 
-## vuln: scan every module for known vulnerabilities (go install golang.org/x/vuln/cmd/govulncheck@v1.5.0)
+## vuln: scan the root module for known vulnerabilities (go install golang.org/x/vuln/cmd/govulncheck@v1.5.0)
 vuln:
-	@for m in $(MODULES); do (cd $$m && govulncheck ./...); done
+	govulncheck ./...
 
 ## clean: remove build artifacts
 clean:
 	rm -rf $(BIN) coverage.out
 
-## bench: run benchmarks across workspace modules
+## bench: run the committed benchmark package set
 bench:
-	go test -bench=. -benchmem -run=^$$ ./shared/pkg/stage/rules/... ./shared/pkg/stage/schema/... ./shared/pkg/engine/... ./shared/pkg/classifier/... ./shared/pkg/logfields/... ./shared/pkg/tokenizer/wordpiece/... ./shared/pkg/sink/jsonl/... ./shared/pkg/source/textfile/... ./shared/pkg/source/jsonl/...
+	go test -bench=. -benchmem -run=^$$ ./rules ./schema ./stream . ./internal/logfields ./internal/tokenizer/wordpiece ./stream/sink/jsonl ./stream/source/text ./stream/source/jsonl
