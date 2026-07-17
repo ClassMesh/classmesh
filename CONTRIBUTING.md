@@ -3,7 +3,7 @@
 ```
 make build   # compile binaries into ./bin
 make test    # all tests with -race
-make lint    # golangci-lint across both modules
+make lint    # golangci-lint from the module root
 make bench   # the benchmark suite behind every README number
 ```
 

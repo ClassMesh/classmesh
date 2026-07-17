@@ -45,7 +45,7 @@ func TestClassifyUnclassifiedWhenNoStageDecides(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	if _, err := c.Classify(context.Background(), rec("anything")); err != ErrUnclassified {
+	if _, err := c.Classify(context.Background(), rec("anything")); !errors.Is(err, ErrUnclassified) {
 		t.Fatalf("Classify() error = %v, want ErrUnclassified", err)
 	}
 }
@@ -109,7 +109,7 @@ func TestClassifyHonorsContextCancellation(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := c.Classify(ctx, rec("x")); err != context.Canceled {
+	if _, err := c.Classify(ctx, rec("x")); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Classify() error = %v, want context.Canceled", err)
 	}
 }

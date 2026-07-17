@@ -25,10 +25,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: |
-            go.sum
-            shared/go.sum
-            services/cli/go.sum
+          cache-dependency-path: go.sum
       - name: Verify module checksums
         run: go mod verify
       - name: Tidy drift check
@@ -50,9 +47,6 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        module: ["."]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -62,7 +56,6 @@ jobs:
       - uses: golangci/golangci-lint-action@v9
         with:
           version: v2.12.2
-          working-directory: ${{ matrix.module }}
           args: --config=${{ github.workspace }}/.golangci.yml
 
   vuln:
@@ -73,11 +66,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: |
-            go.sum
-            shared/go.sum
-            services/cli/go.sum
+          cache-dependency-path: go.sum
       - name: Install govulncheck
         run: go install golang.org/x/vuln/cmd/govulncheck@v1.5.0
-      - name: Scan modules
+      - name: Scan module
         run: govulncheck ./...

@@ -1,88 +1,114 @@
 # Architecture
 
-ClassMesh is a classifier library first and a command-line tool second. The
-core is a set of small Go packages under `shared/pkg` that classify a stream of
-records through an ordered cascade of stages. The `classmesh` binary is a thin
-wrapper that wires those packages together for the file and stdin case; it adds
-no classification logic of its own.
+ClassMesh is a library first and a command-line tool second. The root
+`classmesh` package owns the payload-agnostic record, classification, stage,
+gate, and cascade vocabulary. Feature packages provide deterministic stages and
+optional streaming. The `classmesh` command composes those packages without
+adding classification behavior.
 
-The domain is "classify records", not "classify logs". Logs are the first
-payload we adapt, not the shape the core is built around.
+## Dependency direction
+
+```text
+                         classmesh
+                   Record, Stage, Cascade
+                      ^       ^       ^
+                      |       |       |
+                  rules    schema   stream
+                                      ^
+                                      |
+                         +------------+------------+
+                         |                         |
+                  stream/source              stream/sink
+
+internal/config -> classmesh + rules + schema + internal/mockstage
+internal/cli    -> classmesh + rules + schema + stream + internal/config
+cmd/classmesh   -> internal/cli
+```
+
+The root package imports only the standard library. Public feature packages
+depend inward on the root vocabulary. CLI-only configuration and composition
+stay under `internal`, so embedded users do not inherit a file format or a
+closed list of stage and adapter types.
 
 ## The record envelope
 
-Everything that flows through a pipeline is a `domain.Record`. It is a generic
-envelope, deliberately payload-agnostic:
+Everything classified by the library is a `classmesh.Record`, a generic
+envelope with five fields:
 
-- `ID` identifies the record within a run.
-- `Kind` names the payload shape (`text`, `log`, `event`, `record`, `json`) so
-  a stage can tell what it is looking at without sniffing the bytes.
-- `Data` holds the raw payload bytes, whatever they are: a log line today, a
-  JSON document or an event tomorrow.
-- `Fields` holds structured attributes a source decoded from the payload (a
-  JSON object, say), or is nil for unstructured payloads.
-- `Meta` carries optional source-specific context. The built-in sources leave
-  it empty; a record's provenance (source name and line) lives in its `ID`.
+- `ID` identifies a record within a run.
+- `Kind` describes its payload shape without interpreting the bytes.
+- `Data` holds the raw payload.
+- `Fields` holds optional structured attributes decoded by a caller or source.
+- `Meta` carries optional source-specific context.
 
-The core packages never inspect `Data` as a log line. They move records,
-classify them, and emit results. What the bytes mean is the concern of a stage,
-not the engine. Keeping `Record` neutral is what lets the same cascade serve
-logs, events, and structured records without a parallel type per payload.
+The cascade never interprets `Data`. Rules may match its bytes, schemas inspect
+`Fields`, and custom stages may use either. This keeps the core useful for logs,
+events, documents, and application-defined records.
 
-## The four contracts
+Stages must not mutate a `Record`. In particular, `Data`, `Fields`, and `Meta`
+may be shared with later stages or concurrent consumers. A returned
+`Classification.Reasons` slice is also read-only because a stage may reuse it
+across calls.
 
-A pipeline is assembled from four interfaces, each in its own package:
+## Direct classification
 
-- `source.Source` yields records until it is drained. Text files, JSONL
-  streams, and stdin implement it today; a CSV reader or a network stream could
-  implement it next.
-- `stage.Stage` classifies a record or reports `ErrUnclassified`. Stages range
-  from deterministic rule matching to in-process models to remote calls.
-- `sink.Sink` consumes a record together with its classification: stdout, a
-  file, a review queue, a downstream pipeline.
-- `engine.Engine` drives records from the source through the stages into the
-  sink. Each record exits at the first stage confident enough to decide it, so
-  cheap stages shield expensive ones. Records no stage can decide are routed to
-  an optional review sink.
+The root `classmesh.Cascade` is the primary embedded API. It owns an immutable,
+ordered stage list and returns the first valid result admitted by its confidence
+gate. An undecided or below-gate result advances to the next stage. Exhaustion
+returns `classmesh.ErrUnclassified`.
 
-The cascade is the whole idea: order stages cheapest first and most records
-never reach the costly ones.
+```text
+Record -> Cascade -> stage 1 -> stage 2 -> ... -> Classification
+                         |          |
+                    admitted?  admitted?
+```
 
-## Logs are an adapter, not the core
+`Cascade.Classify` handles one record. Its batch methods preserve input length
+and order, including the concurrent form. A Cascade is safe for concurrent use
+when all supplied stages are safe for concurrent calls. The built-in rules and
+schema stages meet that contract.
 
-The first source reads text line by line, which makes logs the first thing
-ClassMesh classifies end to end. That is a starting point, not a constraint
-baked into the domain. New payloads arrive as new `Source` implementations that
-produce `Record` values; the engine, stages, and sinks do not change. Log-shaped
-helpers belong above the core, next to the sources that need them, not inside
-`domain`.
+## Programmatic stages
 
-## The CLI is a wrapper
+The public `rules` and `schema` packages construct stages from Go values. They
+do not parse YAML. This keeps programmatic consumers independent of the CLI's
+configuration dependency and lets them use `classmesh.New` directly.
 
-`services/cli` builds the `classmesh` binary. It parses flags, opens files or
-stdin, constructs a source, the stage cascade, and the sinks, and hands them to
-the engine. Anything you can do from the command line you can do from Go by
-constructing the same packages directly. The library is the product; the CLI is
-one caller of it.
+Rule declarations and schema declarations used by the command are parsed under
+`internal/config`, then converted to the same public constructors. The
+deterministic mock used by CLI examples is an internal implementation rather
+than a promised model-provider API.
 
-## Declaring a cascade
+## Optional streaming
 
-Beyond `--rules`, a cascade can be declared in a versioned YAML config
-(`shared/pkg/config`): an input, an ordered list of stages with optional
-per-stage confidence gates, category routes, a default sink, and a review sink.
-The config is parsed strictly (unknown keys are rejected) and validated up
-front, so a malformed pipeline fails before any input is opened; `classmesh
-validate --config <file>` reports the first problem. `classmesh run --config
-<file>` then builds and runs the cascade: it executes `rules`, `schema`, and
-`mock` stages (each honoring its per-stage gate, each loading its declaration
-from the stage's `path`) into the default and review sinks, and when the config
-declares category routes it dispatches classified records by category (each
-route to its own sink, or `drop`) with the default sink as the fallback. The
-mock stage is a deterministic model stand-in emitting declared sub-1.0
-confidences, so gate escalation and review routing are exercisable end to end
-before the model tier lands.
+The `stream` package adapts a root Cascade to sources and sinks. Its Engine
+reads records from a `stream/source.Source`, calls the same Cascade used by
+embedded consumers, and writes admitted classifications to a
+`stream/sink.Sink`. Records that exhaust the cascade may go to an optional
+review sink.
 
-With `workers: N` the engine classifies concurrently (one reader, N workers,
-one ordered writer gated by admission credits) so output order, deterministic
-error selection, and stats stay identical to the serial loop. Stages must be
-safe for concurrent Classify (all built-ins are).
+The serial and worker-based engines preserve source order, deterministic first
+error selection, statistics, and deciding-stage attribution. The parallel path
+uses one reader, multiple classifiers, and one ordered writer. The Engine owns
+source and sink calls. Only stage classifications run concurrently, so stages
+used with multiple workers must be safe for concurrent calls.
+
+Built-in adapters include in-memory sources and sinks, line-oriented text and
+JSONL sources, a JSONL sink, and category routing. Applications that only need
+single-record classification do not need to import `stream`.
+
+## The reference command
+
+`cmd/classmesh` builds the reference CLI. `internal/cli` parses commands and
+flags, while `internal/config` strictly parses the versioned YAML pipeline
+format. The composition layer opens files or standard streams, constructs
+public stages and a root Cascade, then passes that Cascade to a stream Engine.
+
+The YAML format can declare an input, ordered stages with optional gates,
+category routes, a default sink, a review sink, and a worker count. Unknown
+keys and invalid values are rejected before input is opened. This format is an
+operational CLI contract, not part of the embedded library API.
+
+The command is one caller of the library. An application can instead construct
+stages and call `Cascade.Classify`, or choose the optional streaming layer and
+provide its own sources and sinks.

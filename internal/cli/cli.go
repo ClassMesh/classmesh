@@ -412,7 +412,7 @@ func stagesFromConfig(cfg *config.Config, base string) ([]classmesh.Stage, error
 		if berr != nil {
 			return nil, berr
 		}
-		var st classmesh.Stage = classmesh.WithName(built, sp.ID)
+		st := classmesh.WithName(built, sp.ID)
 		if sp.Gate != nil {
 			g, gerr := classmesh.NewGate(*sp.Gate)
 			if gerr != nil {
