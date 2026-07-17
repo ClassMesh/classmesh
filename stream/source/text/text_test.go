@@ -1,4 +1,4 @@
-package textfile
+package text
 
 import (
 	"context"
@@ -11,7 +11,7 @@ import (
 	"time"
 
 	domain "github.com/ClassMesh/classmesh"
-	"github.com/ClassMesh/classmesh/shared/pkg/source"
+	"github.com/ClassMesh/classmesh/stream/source"
 )
 
 // TestCloseUnblocksBlockedNext proves a Close (as the CLI does on context

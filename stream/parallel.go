@@ -1,4 +1,4 @@
-package engine
+package stream
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"sync"
 
 	domain "github.com/ClassMesh/classmesh"
-	"github.com/ClassMesh/classmesh/shared/pkg/source"
+	"github.com/ClassMesh/classmesh/stream/source"
 )
 
 // batchSize is how many records travel the pipeline together.

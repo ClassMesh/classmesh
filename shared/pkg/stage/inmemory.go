@@ -14,7 +14,7 @@ type Static struct {
 	categories map[string]string
 }
 
-var _ Stage = (*Static)(nil)
+var _ classmesh.Stage = (*Static)(nil)
 
 // NewStatic returns a Stage named name that maps an exact payload string to
 // a category with full confidence.
@@ -32,7 +32,7 @@ func (s *Static) Classify(ctx context.Context, r classmesh.Record) (classmesh.Cl
 	}
 	category, ok := s.categories[string(r.Data)]
 	if !ok {
-		return classmesh.Classification{}, ErrUnclassified
+		return classmesh.Classification{}, classmesh.ErrUnclassified
 	}
 	return classmesh.Classification{Category: category, Confidence: 1, Stage: s.name}, nil
 }

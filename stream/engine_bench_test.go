@@ -1,4 +1,4 @@
-package engine
+package stream
 
 import (
 	"context"
@@ -6,9 +6,8 @@ import (
 
 	domain "github.com/ClassMesh/classmesh"
 	"github.com/ClassMesh/classmesh/rules"
-	"github.com/ClassMesh/classmesh/shared/pkg/sink"
-	"github.com/ClassMesh/classmesh/shared/pkg/source"
-	"github.com/ClassMesh/classmesh/shared/pkg/stage"
+	"github.com/ClassMesh/classmesh/stream/sink"
+	"github.com/ClassMesh/classmesh/stream/source"
 )
 
 // benchSource yields the same record n times; it measures the pipeline, not
@@ -56,7 +55,7 @@ func BenchmarkEngineEndToEnd(b *testing.B) {
 	payload := []byte(`2026-06-12T10:00:00Z WARN payment declined order=84712 user=991 amount=49.90`)
 	src := &benchSource{record: domain.Record{ID: "bench", Data: payload}, n: b.N}
 
-	e, err := New(Deps{Source: src, Stages: []stage.Stage{ruleStage}, Sink: discardSink{}})
+	e, err := newTestEngine(testOptions{Source: src, Stages: []domain.Stage{ruleStage}, Sink: discardSink{}})
 	if err != nil {
 		b.Fatal(err)
 	}

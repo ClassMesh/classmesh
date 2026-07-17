@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	domain "github.com/ClassMesh/classmesh"
-	"github.com/ClassMesh/classmesh/shared/pkg/source"
+	"github.com/ClassMesh/classmesh/stream/source"
 )
 
 func TestNextYieldsObjectsWithFields(t *testing.T) {

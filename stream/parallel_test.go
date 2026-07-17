@@ -1,4 +1,4 @@
-package engine
+package stream
 
 import (
 	"context"
@@ -11,9 +11,9 @@ import (
 	"time"
 
 	domain "github.com/ClassMesh/classmesh"
-	"github.com/ClassMesh/classmesh/shared/pkg/sink"
-	"github.com/ClassMesh/classmesh/shared/pkg/source"
 	"github.com/ClassMesh/classmesh/shared/pkg/stage"
+	"github.com/ClassMesh/classmesh/stream/sink"
+	"github.com/ClassMesh/classmesh/stream/source"
 )
 
 func sequentialRecords(n int) []domain.Record {
@@ -130,9 +130,9 @@ func (g *guardedSink) Write(ctx context.Context, r domain.Record, c domain.Class
 
 func (g *guardedSink) Close() error { return g.inner.Close() }
 
-func runEngine(t *testing.T, d Deps) (Stats, error) {
+func runEngine(t *testing.T, d testOptions) (Stats, error) {
 	t.Helper()
-	e, err := New(d)
+	e, err := newTestEngine(d)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -154,9 +154,9 @@ func checkNoLeak(t *testing.T) {
 }
 
 func TestNewRejectsNegativeWorkers(t *testing.T) {
-	_, err := New(Deps{
+	_, err := newTestEngine(testOptions{
 		Source:  source.NewInMemory(nil),
-		Stages:  []stage.Stage{stage.NewStatic("s", nil)},
+		Stages:  []domain.Stage{stage.NewStatic("s", nil)},
 		Sink:    sink.NewInMemory(),
 		Workers: -1,
 	})
@@ -174,9 +174,9 @@ func TestParallelMatchesSerialAcrossBatchBoundaries(t *testing.T) {
 			var outputs [][]sink.Entry
 			for _, workers := range []int{0, 1, 8} {
 				out := sink.NewInMemory()
-				stats, err := runEngine(t, Deps{
+				stats, err := runEngine(t, testOptions{
 					Source:  source.NewInMemory(recs),
-					Stages:  []stage.Stage{&alwaysStage{name: "s"}},
+					Stages:  []domain.Stage{&alwaysStage{name: "s"}},
 					Sink:    out,
 					Logger:  discardLogger(),
 					Workers: workers,
@@ -217,9 +217,9 @@ func TestParallelOrderSurvivesAHeldBatch(t *testing.T) {
 		}
 	}
 	out := sink.NewInMemory()
-	stats, err := runEngine(t, Deps{
+	stats, err := runEngine(t, testOptions{
 		Source:  source.NewInMemory(recs),
-		Stages:  []stage.Stage{st},
+		Stages:  []domain.Stage{st},
 		Sink:    &guardedSink{t: t, inner: out},
 		Logger:  discardLogger(),
 		Workers: workers,
@@ -252,9 +252,9 @@ func TestParallelFirstErrorBySequenceIsDeterministic(t *testing.T) {
 				once.Do(func() { close(st.release) })
 			}
 		}
-		stats, err := runEngine(t, Deps{
+		stats, err := runEngine(t, testOptions{
 			Source:  source.NewInMemory(recs),
-			Stages:  []stage.Stage{st},
+			Stages:  []domain.Stage{st},
 			Sink:    sink.NewInMemory(),
 			Logger:  discardLogger(),
 			Workers: workers,
@@ -274,9 +274,9 @@ func TestParallelSourceErrorCommitsEarlierRecords(t *testing.T) {
 	n := batchSize + 7
 	src := &erroringSource{recs: sequentialRecords(n), err: readFail}
 	out := sink.NewInMemory()
-	stats, err := runEngine(t, Deps{
+	stats, err := runEngine(t, testOptions{
 		Source:  src,
-		Stages:  []stage.Stage{&alwaysStage{name: "s"}},
+		Stages:  []domain.Stage{&alwaysStage{name: "s"}},
 		Sink:    out,
 		Logger:  discardLogger(),
 		Workers: 4,
@@ -294,9 +294,9 @@ func TestParallelStageErrorBeatsLaterSourceError(t *testing.T) {
 	boom := errors.New("stage boom")
 	recs := sequentialRecords(batchSize)
 	src := &erroringSource{recs: recs, err: errors.New("late source error")}
-	stats, err := runEngine(t, Deps{
+	stats, err := runEngine(t, testOptions{
 		Source:  src,
-		Stages:  []stage.Stage{&alwaysStage{name: "s", failID: recs[3].ID, failErr: boom}},
+		Stages:  []domain.Stage{&alwaysStage{name: "s", failID: recs[3].ID, failErr: boom}},
 		Sink:    sink.NewInMemory(),
 		Logger:  discardLogger(),
 		Workers: 4,
@@ -320,9 +320,9 @@ func TestParallelSinkErrorUnwindsBlockedSource(t *testing.T) {
 	var err error
 	go func() {
 		defer close(done)
-		stats, err = runEngine(t, Deps{
+		stats, err = runEngine(t, testOptions{
 			Source:  src,
-			Stages:  []stage.Stage{&alwaysStage{name: "s"}},
+			Stages:  []domain.Stage{&alwaysStage{name: "s"}},
 			Sink:    out,
 			Logger:  discardLogger(),
 			Workers: 2,
@@ -346,9 +346,9 @@ func TestParallelReviewRoutingStaysOrderedAndWarnsOnce(t *testing.T) {
 	n := 2*batchSize + 5
 	recs := sequentialRecords(n)
 	review := sink.NewInMemory()
-	stats, err := runEngine(t, Deps{
+	stats, err := runEngine(t, testOptions{
 		Source:  source.NewInMemory(recs),
-		Stages:  []stage.Stage{stage.NewStatic("s", nil)},
+		Stages:  []domain.Stage{stage.NewStatic("s", nil)},
 		Sink:    sink.NewInMemory(),
 		Review:  &guardedSink{t: t, inner: review},
 		Logger:  discardLogger(),
@@ -372,9 +372,9 @@ func TestParallelCancellationStopsTheRun(t *testing.T) {
 	checkNoLeak(t)
 	recs := sequentialRecords(10 * batchSize)
 	held := &alwaysStage{name: "s", holdID: recs[batchSize].ID, release: make(chan struct{})}
-	e, err := New(Deps{
+	e, err := newTestEngine(testOptions{
 		Source:  source.NewInMemory(recs),
-		Stages:  []stage.Stage{held},
+		Stages:  []domain.Stage{held},
 		Sink:    sink.NewInMemory(),
 		Logger:  discardLogger(),
 		Workers: 4,
@@ -427,22 +427,22 @@ func TestParallelFailureMatrixMatchesSerial(t *testing.T) {
 	n := 2*batchSize + 5
 	cases := []struct {
 		name string
-		deps func(recs []domain.Record) Deps
+		deps func(recs []domain.Record) testOptions
 	}{
-		{"stage error at 0", func(recs []domain.Record) Deps {
-			return Deps{Stages: []stage.Stage{&alwaysStage{name: "s", failID: recs[0].ID, failErr: boom}}, Sink: sink.NewInMemory()}
+		{"stage error at 0", func(recs []domain.Record) testOptions {
+			return testOptions{Stages: []domain.Stage{&alwaysStage{name: "s", failID: recs[0].ID, failErr: boom}}, Sink: sink.NewInMemory()}
 		}},
-		{"stage error at batch boundary", func(recs []domain.Record) Deps {
-			return Deps{Stages: []stage.Stage{&alwaysStage{name: "s", failID: recs[batchSize].ID, failErr: boom}}, Sink: sink.NewInMemory()}
+		{"stage error at batch boundary", func(recs []domain.Record) testOptions {
+			return testOptions{Stages: []domain.Stage{&alwaysStage{name: "s", failID: recs[batchSize].ID, failErr: boom}}, Sink: sink.NewInMemory()}
 		}},
-		{"stage error at last record", func(recs []domain.Record) Deps {
-			return Deps{Stages: []stage.Stage{&alwaysStage{name: "s", failID: recs[n-1].ID, failErr: boom}}, Sink: sink.NewInMemory()}
+		{"stage error at last record", func(recs []domain.Record) testOptions {
+			return testOptions{Stages: []domain.Stage{&alwaysStage{name: "s", failID: recs[n-1].ID, failErr: boom}}, Sink: sink.NewInMemory()}
 		}},
-		{"sink error mid-stream", func(recs []domain.Record) Deps {
-			return Deps{Stages: []stage.Stage{&alwaysStage{name: "s"}}, Sink: &guardedSink{inner: sink.NewInMemory(), failID: recs[70].ID, err: boom}}
+		{"sink error mid-stream", func(recs []domain.Record) testOptions {
+			return testOptions{Stages: []domain.Stage{&alwaysStage{name: "s"}}, Sink: &guardedSink{inner: sink.NewInMemory(), failID: recs[70].ID, err: boom}}
 		}},
-		{"review write error", func(recs []domain.Record) Deps {
-			return Deps{Stages: []stage.Stage{stage.NewStatic("s", nil)}, Sink: sink.NewInMemory(), Review: &failingReview{inner: sink.NewInMemory(), failID: recs[66].ID, err: boom}}
+		{"review write error", func(recs []domain.Record) testOptions {
+			return testOptions{Stages: []domain.Stage{stage.NewStatic("s", nil)}, Sink: sink.NewInMemory(), Review: &failingReview{inner: sink.NewInMemory(), failID: recs[66].ID, err: boom}}
 		}},
 	}
 	for _, tc := range cases {
@@ -477,9 +477,9 @@ func TestParallelFailureMatrixMatchesSerial(t *testing.T) {
 func TestParallelCancelWithBlockedNext(t *testing.T) {
 	checkNoLeak(t)
 	src := newBlockingSource(sequentialRecords(3))
-	e, err := New(Deps{
+	e, err := newTestEngine(testOptions{
 		Source:  src,
-		Stages:  []stage.Stage{&alwaysStage{name: "s"}},
+		Stages:  []domain.Stage{&alwaysStage{name: "s"}},
 		Sink:    sink.NewInMemory(),
 		Logger:  discardLogger(),
 		Workers: 2,

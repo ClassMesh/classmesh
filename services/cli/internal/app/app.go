@@ -14,14 +14,14 @@ import (
 	"github.com/ClassMesh/classmesh"
 	stageconfig "github.com/ClassMesh/classmesh/internal/config"
 	"github.com/ClassMesh/classmesh/shared/pkg/config"
-	"github.com/ClassMesh/classmesh/shared/pkg/engine"
-	"github.com/ClassMesh/classmesh/shared/pkg/sink"
-	"github.com/ClassMesh/classmesh/shared/pkg/sink/jsonl"
-	"github.com/ClassMesh/classmesh/shared/pkg/source"
-	jsonlsource "github.com/ClassMesh/classmesh/shared/pkg/source/jsonl"
-	"github.com/ClassMesh/classmesh/shared/pkg/source/textfile"
 	"github.com/ClassMesh/classmesh/shared/pkg/stage/mock"
 	"github.com/ClassMesh/classmesh/shared/pkg/version"
+	"github.com/ClassMesh/classmesh/stream"
+	"github.com/ClassMesh/classmesh/stream/sink"
+	"github.com/ClassMesh/classmesh/stream/sink/jsonl"
+	"github.com/ClassMesh/classmesh/stream/source"
+	jsonlsource "github.com/ClassMesh/classmesh/stream/source/jsonl"
+	"github.com/ClassMesh/classmesh/stream/source/text"
 )
 
 // Streams bundles the process's standard streams so tests can substitute
@@ -218,7 +218,7 @@ func runPipeline(ctx context.Context, args []string, s Streams) (err error) {
 
 	logger := slog.New(slog.NewTextHandler(s.Err, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
-	total := engine.Stats{ByStage: make(map[string]int)}
+	total := stream.Stats{ByStage: make(map[string]int)}
 	if len(inputs) == 0 {
 		stats, rerr := runOne(ctx, newSource(format, s.In, "stdin"), stages, out, review, logger, gate, nWorkers)
 		merge(&total, stats)
@@ -248,7 +248,7 @@ func newSource(format string, r io.Reader, name string) source.Source {
 	if format == "jsonl" {
 		return jsonlsource.New(r, name)
 	}
-	return textfile.New(r, name)
+	return text.New(r, name)
 }
 
 // openSource opens the file at path as a source for the chosen input format.
@@ -260,7 +260,7 @@ func openSource(format, path string) (source.Source, error) {
 		}
 		return src, nil
 	}
-	src, err := textfile.Open(path)
+	src, err := text.Open(path)
 	if err != nil {
 		return nil, err
 	}
@@ -462,7 +462,7 @@ func openSink(spec config.SinkSpec, base string, s Streams, cleanup *[]func() er
 	return js, nil
 }
 
-func runOne(ctx context.Context, src source.Source, stages []classmesh.Stage, out, review sink.Sink, logger *slog.Logger, minConfidence float64, workers int) (engine.Stats, error) {
+func runOne(ctx context.Context, src source.Source, stages []classmesh.Stage, out, review sink.Sink, logger *slog.Logger, minConfidence float64, workers int) (stream.Stats, error) {
 	defer func() { _ = src.Close() }()
 	done := make(chan struct{})
 	defer close(done)
@@ -473,22 +473,29 @@ func runOne(ctx context.Context, src source.Source, stages []classmesh.Stage, ou
 		case <-done:
 		}
 	}()
-	e, err := engine.New(engine.Deps{
-		Source:        src,
+	mesh, err := classmesh.NewWithOptions(classmesh.Options{
 		Stages:        stages,
-		Sink:          out,
-		Review:        review,
-		Logger:        logger,
 		MinConfidence: minConfidence,
-		Workers:       workers,
+		Logger:        logger,
 	})
 	if err != nil {
-		return engine.Stats{}, err
+		return stream.Stats{}, err
+	}
+	e, err := stream.New(stream.Options{
+		Source:  src,
+		Cascade: mesh,
+		Sink:    out,
+		Review:  review,
+		Logger:  logger,
+		Workers: workers,
+	})
+	if err != nil {
+		return stream.Stats{}, err
 	}
 	return e.Run(ctx)
 }
 
-func merge(total *engine.Stats, s engine.Stats) {
+func merge(total *stream.Stats, s stream.Stats) {
 	total.Processed += s.Processed
 	total.Classified += s.Classified
 	total.Reviewed += s.Reviewed

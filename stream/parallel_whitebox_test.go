@@ -1,4 +1,4 @@
-package engine
+package stream
 
 import (
 	"context"
@@ -7,9 +7,9 @@ import (
 	"testing"
 
 	domain "github.com/ClassMesh/classmesh"
-	"github.com/ClassMesh/classmesh/shared/pkg/sink"
-	"github.com/ClassMesh/classmesh/shared/pkg/source"
 	"github.com/ClassMesh/classmesh/shared/pkg/stage"
+	"github.com/ClassMesh/classmesh/stream/sink"
+	"github.com/ClassMesh/classmesh/stream/source"
 )
 
 // TestCommitOrderedReordersFullWindow drives the writer directly with the
@@ -18,9 +18,9 @@ import (
 // stays in sequence order, and exactly one credit returns per commit.
 func TestCommitOrderedReordersFullWindow(t *testing.T) {
 	const workers = 4
-	e, err := New(Deps{
+	e, err := newTestEngine(testOptions{
 		Source:  source.NewInMemory(nil),
-		Stages:  []stage.Stage{stage.NewStatic("s", nil)},
+		Stages:  []domain.Stage{stage.NewStatic("s", nil)},
 		Sink:    sink.NewInMemory(),
 		Logger:  discardLogger(),
 		Workers: workers,
@@ -71,9 +71,9 @@ func TestCommitOrderedReordersFullWindow(t *testing.T) {
 func TestCommitOrderedFirstErrorBySequence(t *testing.T) {
 	early := errors.New("early boom")
 	late := errors.New("late boom")
-	e, err := New(Deps{
+	e, err := newTestEngine(testOptions{
 		Source:  source.NewInMemory(nil),
-		Stages:  []stage.Stage{stage.NewStatic("s", nil)},
+		Stages:  []domain.Stage{stage.NewStatic("s", nil)},
 		Sink:    sink.NewInMemory(),
 		Logger:  discardLogger(),
 		Workers: 2,

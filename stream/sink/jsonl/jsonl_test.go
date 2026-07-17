@@ -92,7 +92,7 @@ func TestWriteGolden(t *testing.T) {
 			`{"id":"e:1","kind":"json","data":"{\"a\":1}","fields":{"a":1},"meta":{"line":"1"},"category":"x","confidence":1,"stage":"rules","reasons":[{"code":"r1","detail":"d"}]}` + "\n",
 		},
 		{
-			// KindText is exactly what the textfile source produces, so this
+			// KindText is exactly what the text source produces, so this
 			// is the default log path: kind must not appear on the wire.
 			"plain log record (KindText) keeps the prior shape",
 			domain.Record{ID: "app.log:1", Kind: domain.KindText, Data: []byte("GET /healthz 200"), Meta: map[string]string{"line": "1"}},

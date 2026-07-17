@@ -1,4 +1,4 @@
-package engine_test
+package stream_test
 
 import (
 	"bytes"
@@ -10,13 +10,12 @@ import (
 
 	domain "github.com/ClassMesh/classmesh"
 	"github.com/ClassMesh/classmesh/rules"
-	"github.com/ClassMesh/classmesh/shared/pkg/engine"
-	"github.com/ClassMesh/classmesh/shared/pkg/sink"
-	jsonlsink "github.com/ClassMesh/classmesh/shared/pkg/sink/jsonl"
-	"github.com/ClassMesh/classmesh/shared/pkg/source"
-	jsonlsrc "github.com/ClassMesh/classmesh/shared/pkg/source/jsonl"
-	"github.com/ClassMesh/classmesh/shared/pkg/source/textfile"
-	"github.com/ClassMesh/classmesh/shared/pkg/stage"
+	"github.com/ClassMesh/classmesh/stream"
+	"github.com/ClassMesh/classmesh/stream/sink"
+	jsonlsink "github.com/ClassMesh/classmesh/stream/sink/jsonl"
+	"github.com/ClassMesh/classmesh/stream/source"
+	jsonlsrc "github.com/ClassMesh/classmesh/stream/source/jsonl"
+	"github.com/ClassMesh/classmesh/stream/source/text"
 )
 
 // loopReader replays its data forever so a bounded source can draw an
@@ -39,7 +38,7 @@ func lineReader(line string) *loopReader {
 	return &loopReader{data: bytes.Repeat([]byte(line+"\n"), 1024)}
 }
 
-// boundedSource caps an underlying source at n records so engine.Run drains
+// boundedSource caps an underlying source at n records so Engine.Run drains
 // after exactly n records.
 type boundedSource struct {
 	inner source.Source
@@ -76,9 +75,13 @@ func realisticRules(tb testing.TB) *rules.Stage {
 	return s
 }
 
-func runEngine(b *testing.B, src source.Source, st stage.Stage, out sink.Sink) {
+func runEngine(b *testing.B, src source.Source, st domain.Stage, out sink.Sink) {
 	b.Helper()
-	e, err := engine.New(engine.Deps{Source: src, Stages: []stage.Stage{st}, Sink: out})
+	mesh, err := domain.New(st)
+	if err != nil {
+		b.Fatal(err)
+	}
+	e, err := stream.New(stream.Options{Source: src, Cascade: mesh, Sink: out})
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -96,7 +99,7 @@ func runEngine(b *testing.B, src source.Source, st stage.Stage, out sink.Sink) {
 // sample hits the first rule, so a classified record is encoded every time.
 func BenchmarkPipelineTextRulesJSONL(b *testing.B) {
 	line := `10.2.3.4 - - [12/Jun/2026:10:00:00] "GET /healthz HTTP/1.1" 200 2 "-" "kube-probe/1.29"`
-	src := newBounded(textfile.New(lineReader(line), "bench"), b.N)
+	src := newBounded(text.New(lineReader(line), "bench"), b.N)
 	sink := jsonlsink.New(io.Discard)
 	defer func() { _ = sink.Close() }()
 	st := realisticRules(b)
@@ -150,7 +153,7 @@ func BenchmarkPipelineSink(b *testing.B) {
 	}
 	for _, tc := range cases {
 		b.Run(tc.name, func(b *testing.B) {
-			src := newBounded(textfile.New(lineReader(line), "bench"), b.N)
+			src := newBounded(text.New(lineReader(line), "bench"), b.N)
 			sink := jsonlsink.New(tc.writer(b))
 			defer func() { _ = sink.Close() }()
 			st := realisticRules(b)

@@ -1,4 +1,4 @@
-package engine
+package stream
 
 import (
 	"context"
@@ -7,9 +7,9 @@ import (
 	"testing"
 
 	domain "github.com/ClassMesh/classmesh"
-	"github.com/ClassMesh/classmesh/shared/pkg/sink"
-	"github.com/ClassMesh/classmesh/shared/pkg/source"
 	"github.com/ClassMesh/classmesh/shared/pkg/stage"
+	"github.com/ClassMesh/classmesh/stream/sink"
+	"github.com/ClassMesh/classmesh/stream/source"
 )
 
 type invalidStage struct{}
@@ -20,9 +20,9 @@ func (invalidStage) Classify(context.Context, domain.Record) (domain.Classificat
 }
 
 func TestNewRejectsDuplicateStageNames(t *testing.T) {
-	_, err := New(Deps{
+	_, err := newTestEngine(testOptions{
 		Source: source.NewInMemory(nil),
-		Stages: []stage.Stage{stage.NewStatic("dup", nil), stage.NewStatic("dup", nil)},
+		Stages: []domain.Stage{stage.NewStatic("dup", nil), stage.NewStatic("dup", nil)},
 		Sink:   sink.NewInMemory(),
 	})
 	if err == nil || !strings.Contains(err.Error(), "duplicate stage name") {
@@ -31,9 +31,9 @@ func TestNewRejectsDuplicateStageNames(t *testing.T) {
 }
 
 func TestRunFailsFastOnInvalidClassification(t *testing.T) {
-	e, err := New(Deps{
+	e, err := newTestEngine(testOptions{
 		Source: source.NewInMemory(records("anything")),
-		Stages: []stage.Stage{invalidStage{}},
+		Stages: []domain.Stage{invalidStage{}},
 		Sink:   sink.NewInMemory(),
 		Logger: discardLogger(),
 	})
@@ -41,8 +41,8 @@ func TestRunFailsFastOnInvalidClassification(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 	_, err = e.Run(context.Background())
-	var se *stage.Error
+	var se *domain.StageError
 	if !errors.As(err, &se) || se.Stage != "invalid" {
-		t.Fatalf("Run() error = %v, want stage.Error for \"invalid\"", err)
+		t.Fatalf("Run() error = %v, want domain.StageError for \"invalid\"", err)
 	}
 }

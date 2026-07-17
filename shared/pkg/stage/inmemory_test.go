@@ -25,7 +25,7 @@ func TestStaticClassify(t *testing.T) {
 	}{
 		{"known payload", "GET /healthz 200", "noise", nil},
 		{"another known payload", "payment failed", "billing", nil},
-		{"unknown payload", "something new", "", ErrUnclassified},
+		{"unknown payload", "something new", "", domain.ErrUnclassified},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

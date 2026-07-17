@@ -19,10 +19,10 @@ import (
 	"sync/atomic"
 
 	domain "github.com/ClassMesh/classmesh"
-	"github.com/ClassMesh/classmesh/shared/pkg/source"
+	"github.com/ClassMesh/classmesh/stream/source"
 )
 
-// maxLineBytes bounds a single line, matching the textfile source: JSON event
+// maxLineBytes bounds a single line, matching the text source: JSON event
 // lines can be large (nested payloads), so allow up to 1MiB.
 const maxLineBytes = 1 << 20
 

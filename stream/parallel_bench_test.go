@@ -1,4 +1,4 @@
-package engine
+package stream
 
 import (
 	"context"
@@ -6,8 +6,7 @@ import (
 	"testing"
 
 	domain "github.com/ClassMesh/classmesh"
-	"github.com/ClassMesh/classmesh/shared/pkg/source"
-	"github.com/ClassMesh/classmesh/shared/pkg/stage"
+	"github.com/ClassMesh/classmesh/stream/source"
 )
 
 // spinStage burns CPU per record, standing in for model-tier inference.
@@ -26,7 +25,7 @@ func (s *spinStage) Classify(ctx context.Context, r domain.Record) (domain.Class
 		}
 	}
 	if h == 0 {
-		return domain.Classification{}, stage.ErrUnclassified
+		return domain.Classification{}, domain.ErrUnclassified
 	}
 	return domain.Classification{Category: "ok", Confidence: 1}, nil
 }
@@ -54,19 +53,19 @@ func BenchmarkEngineWorkers(b *testing.B) {
 	recs := sequentialRecords(n)
 	cases := []struct {
 		name  string
-		stage func() stage.Stage
+		stage func() domain.Stage
 	}{
-		{"cheap-stage", func() stage.Stage { return &spinStage{} }},
-		{"cpu-heavy-stage", func() stage.Stage { return &spinStage{iters: 400} }},
+		{"cheap-stage", func() domain.Stage { return &spinStage{} }},
+		{"cpu-heavy-stage", func() domain.Stage { return &spinStage{iters: 400} }},
 	}
 	for _, tc := range cases {
 		for _, workers := range []int{0, 1, 2, 4, 8, 16} {
 			b.Run(fmt.Sprintf("%s/workers=%d", tc.name, workers), func(b *testing.B) {
 				b.ReportAllocs()
 				for i := 0; i < b.N; i++ {
-					e, err := New(Deps{
+					e, err := newTestEngine(testOptions{
 						Source:  &replaySource{recs: recs},
-						Stages:  []stage.Stage{tc.stage()},
+						Stages:  []domain.Stage{tc.stage()},
 						Sink:    discardSink{},
 						Logger:  discardLogger(),
 						Workers: workers,

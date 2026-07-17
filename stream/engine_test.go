@@ -1,4 +1,4 @@
-package engine
+package stream
 
 import (
 	"bytes"
@@ -10,9 +10,9 @@ import (
 	"testing"
 
 	domain "github.com/ClassMesh/classmesh"
-	"github.com/ClassMesh/classmesh/shared/pkg/sink"
-	"github.com/ClassMesh/classmesh/shared/pkg/source"
 	"github.com/ClassMesh/classmesh/shared/pkg/stage"
+	"github.com/ClassMesh/classmesh/stream/sink"
+	"github.com/ClassMesh/classmesh/stream/source"
 )
 
 func records(payloads ...string) []domain.Record {
@@ -27,23 +27,56 @@ func discardLogger() *slog.Logger {
 	return slog.New(slog.NewJSONHandler(io.Discard, nil))
 }
 
-func TestNewValidatesDeps(t *testing.T) {
+type testOptions struct {
+	Source        source.Source
+	Stages        []domain.Stage
+	Sink          sink.Sink
+	Review        sink.Sink
+	Logger        *slog.Logger
+	MinConfidence float64
+	Workers       int
+}
+
+func newTestEngine(options testOptions) (*Engine, error) {
+	mesh, err := domain.NewWithOptions(domain.Options{
+		Stages:        options.Stages,
+		MinConfidence: options.MinConfidence,
+		Logger:        options.Logger,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return New(Options{
+		Source:  options.Source,
+		Cascade: mesh,
+		Sink:    options.Sink,
+		Review:  options.Review,
+		Logger:  options.Logger,
+		Workers: options.Workers,
+	})
+}
+
+func TestNewValidatesOptions(t *testing.T) {
 	src := source.NewInMemory(nil)
 	st := stage.NewStatic("s", nil)
 	snk := sink.NewInMemory()
+	mesh, err := domain.New(st)
+	if err != nil {
+		t.Fatalf("classmesh.New() error = %v", err)
+	}
 
 	cases := []struct {
 		name    string
-		deps    Deps
+		options Options
 		wantErr string
 	}{
-		{"missing source", Deps{Stages: []stage.Stage{st}, Sink: snk}, "source"},
-		{"missing stages", Deps{Source: src, Sink: snk}, "stage"},
-		{"missing sink", Deps{Source: src, Stages: []stage.Stage{st}}, "sink"},
+		{"missing source", Options{Cascade: mesh, Sink: snk}, "source"},
+		{"missing cascade", Options{Source: src, Sink: snk}, "cascade"},
+		{"missing sink", Options{Source: src, Cascade: mesh}, "sink"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := New(tc.deps)
+			_, err := New(tc.options)
 			if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
 				t.Fatalf("New() error = %v, want mention of %q", err, tc.wantErr)
 			}
@@ -58,9 +91,9 @@ func TestRunCascadesAndRoutesReview(t *testing.T) {
 	classified := sink.NewInMemory()
 	review := sink.NewInMemory()
 
-	e, err := New(Deps{
+	e, err := newTestEngine(testOptions{
 		Source: src,
-		Stages: []stage.Stage{stage1, stage2},
+		Stages: []domain.Stage{stage1, stage2},
 		Sink:   classified,
 		Review: review,
 		Logger: discardLogger(),
@@ -100,9 +133,9 @@ func TestRunCascadesAndRoutesReview(t *testing.T) {
 
 func TestRunWithoutReviewSinkDropsUnclassified(t *testing.T) {
 	src := source.NewInMemory(records("garbage"))
-	e, err := New(Deps{
+	e, err := newTestEngine(testOptions{
 		Source: src,
-		Stages: []stage.Stage{stage.NewStatic("rules", nil)},
+		Stages: []domain.Stage{stage.NewStatic("rules", nil)},
 		Sink:   sink.NewInMemory(),
 		Logger: discardLogger(),
 	})
@@ -122,9 +155,9 @@ func TestRunWithoutReviewSinkDropsUnclassified(t *testing.T) {
 func TestRunWarnsOnceForManyDrops(t *testing.T) {
 	var logBuf bytes.Buffer
 	src := source.NewInMemory(records("garbage one", "garbage two", "garbage three"))
-	e, err := New(Deps{
+	e, err := newTestEngine(testOptions{
 		Source: src,
-		Stages: []stage.Stage{stage.NewStatic("rules", nil)},
+		Stages: []domain.Stage{stage.NewStatic("rules", nil)},
 		Sink:   sink.NewInMemory(),
 		Logger: slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelWarn})),
 	})
@@ -153,9 +186,9 @@ func (f failingStage) Classify(context.Context, domain.Record) (domain.Classific
 func TestRunPropagatesStageError(t *testing.T) {
 	boom := errors.New("boom")
 	src := source.NewInMemory(records("a"))
-	e, err := New(Deps{
+	e, err := newTestEngine(testOptions{
 		Source: src,
-		Stages: []stage.Stage{failingStage{err: boom}},
+		Stages: []domain.Stage{failingStage{err: boom}},
 		Sink:   sink.NewInMemory(),
 		Logger: discardLogger(),
 	})
@@ -170,9 +203,9 @@ func TestRunPropagatesStageError(t *testing.T) {
 	if !strings.Contains(err.Error(), "failing") {
 		t.Fatalf("Run() error = %v, want stage name in message", err)
 	}
-	var se *stage.Error
+	var se *domain.StageError
 	if !errors.As(err, &se) || se.Stage != "failing" {
-		t.Fatalf("Run() error = %v, want *stage.Error with Stage=failing", err)
+		t.Fatalf("Run() error = %v, want *domain.StageError with Stage=failing", err)
 	}
 	if stats.Processed != 1 {
 		t.Fatalf("stats.Processed = %d, want 1", stats.Processed)
@@ -181,9 +214,9 @@ func TestRunPropagatesStageError(t *testing.T) {
 
 func TestRunHonorsContextCancellation(t *testing.T) {
 	src := source.NewInMemory(records("a"))
-	e, err := New(Deps{
+	e, err := newTestEngine(testOptions{
 		Source: src,
-		Stages: []stage.Stage{stage.NewStatic("rules", nil)},
+		Stages: []domain.Stage{stage.NewStatic("rules", nil)},
 		Sink:   sink.NewInMemory(),
 		Logger: discardLogger(),
 	})
@@ -210,9 +243,9 @@ func (s scoredStage) Classify(context.Context, domain.Record) (domain.Classifica
 
 func TestNewRejectsInvalidMinConfidence(t *testing.T) {
 	for _, bad := range []float64{-0.1, 1.5} {
-		_, err := New(Deps{
+		_, err := newTestEngine(testOptions{
 			Source:        source.NewInMemory(nil),
-			Stages:        []stage.Stage{stage.NewStatic("s", nil)},
+			Stages:        []domain.Stage{stage.NewStatic("s", nil)},
 			Sink:          sink.NewInMemory(),
 			MinConfidence: bad,
 		})
@@ -228,9 +261,9 @@ func TestRunConfidenceGateEscalates(t *testing.T) {
 	high := scoredStage{name: "high", confidence: 0.9}
 	classified := sink.NewInMemory()
 
-	e, err := New(Deps{
+	e, err := newTestEngine(testOptions{
 		Source:        src,
-		Stages:        []stage.Stage{low, high},
+		Stages:        []domain.Stage{low, high},
 		Sink:          classified,
 		MinConfidence: 0.7,
 		Logger:        discardLogger(),
@@ -254,9 +287,9 @@ func TestRunConfidenceGateEscalates(t *testing.T) {
 func TestRunConfidenceGateRoutesToReviewWhenNothingPasses(t *testing.T) {
 	src := source.NewInMemory(records("a"))
 	review := sink.NewInMemory()
-	e, err := New(Deps{
+	e, err := newTestEngine(testOptions{
 		Source:        src,
-		Stages:        []stage.Stage{scoredStage{name: "low", confidence: 0.3}},
+		Stages:        []domain.Stage{scoredStage{name: "low", confidence: 0.3}},
 		Sink:          sink.NewInMemory(),
 		Review:        review,
 		MinConfidence: 0.7,
@@ -279,9 +312,9 @@ func TestRunConfidenceGateRoutesToReviewWhenNothingPasses(t *testing.T) {
 
 func TestRunZeroGateIsDisabled(t *testing.T) {
 	src := source.NewInMemory(records("a"))
-	e, err := New(Deps{
+	e, err := newTestEngine(testOptions{
 		Source: src,
-		Stages: []stage.Stage{scoredStage{name: "any", confidence: 0.01}},
+		Stages: []domain.Stage{scoredStage{name: "any", confidence: 0.01}},
 		Sink:   sink.NewInMemory(),
 		Logger: discardLogger(),
 	})

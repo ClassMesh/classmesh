@@ -19,7 +19,7 @@ import (
 	"unicode/utf8"
 
 	domain "github.com/ClassMesh/classmesh"
-	"github.com/ClassMesh/classmesh/shared/pkg/sink"
+	"github.com/ClassMesh/classmesh/stream/sink"
 )
 
 // Sink writes one JSON object per record to an io.Writer. Output is

@@ -1,4 +1,4 @@
-package textfile
+package text
 
 import (
 	"bytes"

@@ -1,7 +1,7 @@
-// Package textfile implements source.Source over line-oriented text: files
+// Package text implements source.Source over line-oriented text: files
 // and stdin. Every line becomes one Record, losslessly, blank lines
 // included, so downstream stages see exactly what the input contained.
-package textfile
+package text
 
 import (
 	"bufio"
@@ -13,7 +13,7 @@ import (
 	"sync/atomic"
 
 	domain "github.com/ClassMesh/classmesh"
-	"github.com/ClassMesh/classmesh/shared/pkg/source"
+	"github.com/ClassMesh/classmesh/stream/source"
 )
 
 // maxLineBytes bounds a single line. Log lines routinely exceed bufio's
