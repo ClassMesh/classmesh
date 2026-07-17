@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/ClassMesh/classmesh/shared/pkg/domain"
+	domain "github.com/ClassMesh/classmesh"
 )
 
 type failingSink struct{ err error }

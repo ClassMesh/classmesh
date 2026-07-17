@@ -6,7 +6,7 @@ import (
 	"context"
 	"errors"
 
-	"github.com/ClassMesh/classmesh/shared/pkg/domain"
+	domain "github.com/ClassMesh/classmesh"
 )
 
 // ErrDrained is returned by Next when the source has no more records.

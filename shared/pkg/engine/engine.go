@@ -10,8 +10,8 @@ import (
 	"fmt"
 	"log/slog"
 
+	domain "github.com/ClassMesh/classmesh"
 	"github.com/ClassMesh/classmesh/shared/pkg/cascade"
-	"github.com/ClassMesh/classmesh/shared/pkg/domain"
 	"github.com/ClassMesh/classmesh/shared/pkg/sink"
 	"github.com/ClassMesh/classmesh/shared/pkg/source"
 	"github.com/ClassMesh/classmesh/shared/pkg/stage"
@@ -62,7 +62,7 @@ type Engine struct {
 	sink    sink.Sink
 	review  sink.Sink
 	logger  *slog.Logger
-	gate    stage.Gate
+	gate    float64
 	workers int
 }
 
@@ -80,7 +80,7 @@ func New(d Deps) (*Engine, error) {
 	if d.Sink == nil {
 		return nil, errors.New("engine: sink is required")
 	}
-	gate, err := stage.NewGate(d.MinConfidence)
+	_, err := stage.NewGate(d.MinConfidence)
 	if err != nil {
 		return nil, fmt.Errorf("engine: %w", err)
 	}
@@ -96,7 +96,7 @@ func New(d Deps) (*Engine, error) {
 		sink:    d.Sink,
 		review:  d.Review,
 		logger:  d.Logger,
-		gate:    gate,
+		gate:    d.MinConfidence,
 		workers: d.Workers,
 	}, nil
 }

@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/ClassMesh/classmesh/shared/pkg/stage"
+	"github.com/ClassMesh/classmesh"
 	"gopkg.in/yaml.v3"
 )
 
@@ -145,7 +145,7 @@ func (c *Config) Validate() error {
 			return fmt.Errorf("config: stage %q: a %s stage needs a path", s.ID, s.Type)
 		}
 		if s.Gate != nil {
-			if _, err := stage.NewGate(*s.Gate); err != nil {
+			if _, err := classmesh.NewGate(*s.Gate); err != nil {
 				return fmt.Errorf("config: stage %q: gate %v is invalid: %w", s.ID, *s.Gate, err)
 			}
 		}

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ClassMesh/classmesh/shared/pkg/domain"
+	domain "github.com/ClassMesh/classmesh"
 )
 
 // entry mirrors the documented wire shape for decoding in tests.

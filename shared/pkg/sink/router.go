@@ -3,7 +3,7 @@ package sink
 import (
 	"context"
 
-	"github.com/ClassMesh/classmesh/shared/pkg/domain"
+	domain "github.com/ClassMesh/classmesh"
 )
 
 // Router is a Sink that dispatches each record to a per-category Sink, falling

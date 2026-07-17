@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync/atomic"
 
-	"github.com/ClassMesh/classmesh/shared/pkg/domain"
+	domain "github.com/ClassMesh/classmesh"
 )
 
 // InMemory is a Source backed by a fixed slice of records, for tests and

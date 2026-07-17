@@ -6,7 +6,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/ClassMesh/classmesh/shared/pkg/domain"
+	domain "github.com/ClassMesh/classmesh"
 )
 
 // BenchmarkWrite measures the per-record cost of encoding a classified record

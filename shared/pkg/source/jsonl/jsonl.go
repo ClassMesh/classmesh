@@ -18,7 +18,7 @@ import (
 	"strconv"
 	"sync/atomic"
 
-	"github.com/ClassMesh/classmesh/shared/pkg/domain"
+	domain "github.com/ClassMesh/classmesh"
 	"github.com/ClassMesh/classmesh/shared/pkg/source"
 )
 

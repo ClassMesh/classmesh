@@ -4,11 +4,11 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ClassMesh/classmesh/shared/pkg/domain"
+	domain "github.com/ClassMesh/classmesh"
+	"github.com/ClassMesh/classmesh/rules"
 	"github.com/ClassMesh/classmesh/shared/pkg/sink"
 	"github.com/ClassMesh/classmesh/shared/pkg/source"
 	"github.com/ClassMesh/classmesh/shared/pkg/stage"
-	"github.com/ClassMesh/classmesh/shared/pkg/stage/rules"
 )
 
 // benchSource yields the same record n times; it measures the pipeline, not

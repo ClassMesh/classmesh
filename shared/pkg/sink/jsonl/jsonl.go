@@ -18,7 +18,7 @@ import (
 	"strconv"
 	"unicode/utf8"
 
-	"github.com/ClassMesh/classmesh/shared/pkg/domain"
+	domain "github.com/ClassMesh/classmesh"
 	"github.com/ClassMesh/classmesh/shared/pkg/sink"
 )
 

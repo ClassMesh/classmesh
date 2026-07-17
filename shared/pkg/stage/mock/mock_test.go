@@ -9,12 +9,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ClassMesh/classmesh/shared/pkg/domain"
-	"github.com/ClassMesh/classmesh/shared/pkg/stage"
+	"github.com/ClassMesh/classmesh"
 )
 
-func record(data string) domain.Record {
-	return domain.Record{ID: "r1", Data: []byte(data)}
+func record(data string) classmesh.Record {
+	return classmesh.Record{ID: "r1", Data: []byte(data)}
 }
 
 func TestFirstMatcherWins(t *testing.T) {
@@ -64,7 +63,7 @@ func TestUnmatchedEscalatesWithoutDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
-	if _, err := s.Classify(context.Background(), record("nothing here")); !errors.Is(err, stage.ErrUnclassified) {
+	if _, err := s.Classify(context.Background(), record("nothing here")); !errors.Is(err, classmesh.ErrUnclassified) {
 		t.Fatalf("Classify() error = %v, want ErrUnclassified", err)
 	}
 }

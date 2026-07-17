@@ -11,6 +11,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/ClassMesh/classmesh"
+	stageconfig "github.com/ClassMesh/classmesh/internal/config"
 	"github.com/ClassMesh/classmesh/shared/pkg/config"
 	"github.com/ClassMesh/classmesh/shared/pkg/engine"
 	"github.com/ClassMesh/classmesh/shared/pkg/sink"
@@ -18,10 +20,7 @@ import (
 	"github.com/ClassMesh/classmesh/shared/pkg/source"
 	jsonlsource "github.com/ClassMesh/classmesh/shared/pkg/source/jsonl"
 	"github.com/ClassMesh/classmesh/shared/pkg/source/textfile"
-	"github.com/ClassMesh/classmesh/shared/pkg/stage"
 	"github.com/ClassMesh/classmesh/shared/pkg/stage/mock"
-	"github.com/ClassMesh/classmesh/shared/pkg/stage/rules"
-	"github.com/ClassMesh/classmesh/shared/pkg/stage/schema"
 	"github.com/ClassMesh/classmesh/shared/pkg/version"
 )
 
@@ -153,7 +152,7 @@ func runPipeline(ctx context.Context, args []string, s Streams) (err error) {
 
 	var (
 		format   string
-		stages   []stage.Stage
+		stages   []classmesh.Stage
 		out      sink.Sink
 		review   sink.Sink
 		gate     float64
@@ -180,11 +179,11 @@ func runPipeline(ctx context.Context, args []string, s Streams) (err error) {
 				}
 			}
 		}
-		ruleStage, lerr := rules.Load(*rulesPath)
+		ruleStage, lerr := stageconfig.LoadRules(*rulesPath)
 		if lerr != nil {
 			return lerr
 		}
-		stages, format, gate, nWorkers = []stage.Stage{ruleStage}, *input, *minConfidence, *workers
+		stages, format, gate, nWorkers = []classmesh.Stage{ruleStage}, *input, *minConfidence, *workers
 		o := jsonl.New(s.Out)
 		cleanup = append(cleanup, func() error {
 			if cerr := o.Close(); cerr != nil {
@@ -273,7 +272,7 @@ func openSource(format, path string) (source.Source, error) {
 // output sink, and the review sink. When the config declares routes the output
 // is a sink.Router that dispatches by category over the default sink. Stage
 // types beyond rules, schema, and mock are not yet wired from a config.
-func buildFromConfig(path string, s Streams, inputs []string, cleanup *[]func() error) (format string, stages []stage.Stage, out, review sink.Sink, workers int, err error) {
+func buildFromConfig(path string, s Streams, inputs []string, cleanup *[]func() error) (format string, stages []classmesh.Stage, out, review sink.Sink, workers int, err error) {
 	data, rerr := os.ReadFile(path)
 	if rerr != nil {
 		return "", nil, nil, nil, 0, fmt.Errorf("run: %w", rerr)
@@ -408,20 +407,20 @@ func resolve(base, p string) string {
 
 // stagesFromConfig builds each declared stage, renaming it to its config id and
 // wrapping any that carries a gate.
-func stagesFromConfig(cfg *config.Config, base string) ([]stage.Stage, error) {
-	stages := make([]stage.Stage, 0, len(cfg.Stages))
+func stagesFromConfig(cfg *config.Config, base string) ([]classmesh.Stage, error) {
+	stages := make([]classmesh.Stage, 0, len(cfg.Stages))
 	for _, sp := range cfg.Stages {
 		built, berr := buildStage(sp, base)
 		if berr != nil {
 			return nil, berr
 		}
-		var st stage.Stage = stage.WithName(built, sp.ID)
+		var st classmesh.Stage = classmesh.WithName(built, sp.ID)
 		if sp.Gate != nil {
-			g, gerr := stage.NewGate(*sp.Gate)
+			g, gerr := classmesh.NewGate(*sp.Gate)
 			if gerr != nil {
 				return nil, gerr
 			}
-			st = stage.WithGate(st, g)
+			st = classmesh.WithGate(st, g)
 		}
 		stages = append(stages, st)
 	}
@@ -430,12 +429,12 @@ func stagesFromConfig(cfg *config.Config, base string) ([]stage.Stage, error) {
 
 // buildStage constructs one stage from its spec, loading its declaration file
 // relative to the config directory.
-func buildStage(sp config.StageSpec, base string) (stage.Stage, error) {
+func buildStage(sp config.StageSpec, base string) (classmesh.Stage, error) {
 	switch sp.Type {
 	case "rules":
-		return rules.Load(resolve(base, sp.Path))
+		return stageconfig.LoadRules(resolve(base, sp.Path))
 	case "schema":
-		return schema.Load(resolve(base, sp.Path))
+		return stageconfig.LoadSchema(resolve(base, sp.Path))
 	case "mock":
 		return mock.Load(resolve(base, sp.Path))
 	default:
@@ -463,7 +462,7 @@ func openSink(spec config.SinkSpec, base string, s Streams, cleanup *[]func() er
 	return js, nil
 }
 
-func runOne(ctx context.Context, src source.Source, stages []stage.Stage, out, review sink.Sink, logger *slog.Logger, minConfidence float64, workers int) (engine.Stats, error) {
+func runOne(ctx context.Context, src source.Source, stages []classmesh.Stage, out, review sink.Sink, logger *slog.Logger, minConfidence float64, workers int) (engine.Stats, error) {
 	defer func() { _ = src.Close() }()
 	done := make(chan struct{})
 	defer close(done)

@@ -1,4 +1,4 @@
-// Package mock implements a stage.Stage that stands in for a model: it emits
+// Package mock implements a classmesh.Stage that stands in for a model: it emits
 // declared confidences below 1.0 so gates, escalation, and review routing can
 // be exercised end to end before a real model stage exists. Matching is
 // deterministic (payload substrings), so runs are reproducible.
@@ -10,8 +10,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/ClassMesh/classmesh/shared/pkg/domain"
-	"github.com/ClassMesh/classmesh/shared/pkg/stage"
+	"github.com/ClassMesh/classmesh"
 )
 
 // Name identifies this stage in classifications, stats, and logs.
@@ -40,16 +39,16 @@ type Config struct {
 
 type compiledMatcher struct {
 	needles [][]byte
-	result  domain.Classification
+	result  classmesh.Classification
 }
 
 // Stage scores records with declared confidences.
 type Stage struct {
 	matchers []compiledMatcher
-	def      *domain.Classification
+	def      *classmesh.Classification
 }
 
-var _ stage.Stage = (*Stage)(nil)
+var _ classmesh.Stage = (*Stage)(nil)
 
 // New validates and compiles the config. At least one matcher or a default is
 // required; every outcome needs a category and a confidence in [0, 1].
@@ -85,28 +84,28 @@ func New(cfg Config) (*Stage, error) {
 	return s, nil
 }
 
-func outcome(where string, o Outcome) (domain.Classification, error) {
-	c := domain.Classification{
+func outcome(where string, o Outcome) (classmesh.Classification, error) {
+	c := classmesh.Classification{
 		Category:   o.Category,
 		Confidence: o.Confidence,
 		Stage:      Name,
-		Reasons:    []domain.Reason{{Code: Name, Detail: fmt.Sprintf("mock score %v for %q", o.Confidence, o.Category)}},
+		Reasons:    []classmesh.Reason{{Code: Name, Detail: fmt.Sprintf("mock score %v for %q", o.Confidence, o.Category)}},
 	}
 	if !c.IsValid() {
-		return domain.Classification{}, fmt.Errorf("mock: %s: category %q with confidence %v is invalid", where, o.Category, o.Confidence)
+		return classmesh.Classification{}, fmt.Errorf("mock: %s: category %q with confidence %v is invalid", where, o.Category, o.Confidence)
 	}
 	return c, nil
 }
 
-// Name implements stage.Stage.
+// Name implements classmesh.Stage.
 func (s *Stage) Name() string { return Name }
 
-// Classify implements stage.Stage: the first matcher whose substring hits the
+// Classify implements classmesh.Stage: the first matcher whose substring hits the
 // payload returns its outcome; otherwise the default applies, or the record
 // escalates with ErrUnclassified.
-func (s *Stage) Classify(ctx context.Context, r domain.Record) (domain.Classification, error) {
+func (s *Stage) Classify(ctx context.Context, r classmesh.Record) (classmesh.Classification, error) {
 	if err := ctx.Err(); err != nil {
-		return domain.Classification{}, err
+		return classmesh.Classification{}, err
 	}
 	for _, m := range s.matchers {
 		for _, needle := range m.needles {
@@ -118,5 +117,5 @@ func (s *Stage) Classify(ctx context.Context, r domain.Record) (domain.Classific
 	if s.def != nil {
 		return *s.def, nil
 	}
-	return domain.Classification{}, stage.ErrUnclassified
+	return classmesh.Classification{}, classmesh.ErrUnclassified
 }

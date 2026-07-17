@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ClassMesh/classmesh/shared/pkg/domain"
+	domain "github.com/ClassMesh/classmesh"
 	"github.com/ClassMesh/classmesh/shared/pkg/sink"
 	"github.com/ClassMesh/classmesh/shared/pkg/source"
 	"github.com/ClassMesh/classmesh/shared/pkg/stage"

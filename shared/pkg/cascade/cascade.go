@@ -1,6 +1,4 @@
-// Package cascade is the one stage-cascade walk the engine and the classifier
-// share: stages run in order, abstentions and below-gate decisions escalate, and
-// the first confident decision (or Exhausted) is returned -- one place, no drift.
+// Package cascade keeps the old engine compiling during the module migration.
 package cascade
 
 import (
@@ -8,48 +6,33 @@ import (
 	"errors"
 	"log/slog"
 
-	"github.com/ClassMesh/classmesh/shared/pkg/domain"
-	"github.com/ClassMesh/classmesh/shared/pkg/stage"
+	"github.com/ClassMesh/classmesh"
 )
 
-// Result is the cascade-level outcome for a record. It is meaningful only when
-// Run returns a nil error.
+// Result is the cascade-level outcome for a record.
 type Result int
 
 const (
-	// Exhausted means no stage decided the record: every stage abstained or
-	// scored below the gate. The caller routes it to review or drops it.
 	Exhausted Result = iota
-	// Classified means a stage decided the record at or above the gate.
 	Classified
 )
 
-// Run returns the first stage decision at or above the gate as Classified (Stage
-// stamped), or Exhausted when none decides. ErrUnclassified escalates; any other
-// stage error stops the walk as a bare *stage.Error for the caller to prefix. A
-// non-nil logger gets a debug line per gate escalation.
-func Run(ctx context.Context, stages []stage.Stage, gate stage.Gate, r domain.Record, logger *slog.Logger) (domain.Classification, Result, error) {
-	for _, st := range stages {
-		c, err := st.Classify(ctx, r)
-		if errors.Is(err, stage.ErrUnclassified) {
-			continue
-		}
-		if err != nil {
-			return domain.Classification{}, Exhausted, &stage.Error{Stage: st.Name(), Err: err}
-		}
-		if err := stage.ValidateResult(st.Name(), c); err != nil {
-			return domain.Classification{}, Exhausted, err
-		}
-		if !gate.Admits(c.Confidence) {
-			if logger != nil && logger.Enabled(ctx, slog.LevelDebug) {
-				logger.Debug("classification below confidence gate, escalating",
-					"record", r.ID, "stage", st.Name(), "category", c.Category,
-					"confidence", c.Confidence, "gate", gate)
-			}
-			continue
-		}
-		c.Stage = st.Name()
-		return c, Classified, nil
+// Run delegates classification to the root Cascade.
+func Run(ctx context.Context, stages []classmesh.Stage, gate float64, r classmesh.Record, logger *slog.Logger) (classmesh.Classification, Result, error) {
+	cascade, err := classmesh.NewWithOptions(classmesh.Options{
+		Stages:        stages,
+		MinConfidence: gate,
+		Logger:        logger,
+	})
+	if err != nil {
+		return classmesh.Classification{}, Exhausted, err
 	}
-	return domain.Classification{}, Exhausted, nil
+	classification, err := cascade.Classify(ctx, r)
+	if errors.Is(err, classmesh.ErrUnclassified) {
+		return classmesh.Classification{}, Exhausted, nil
+	}
+	if err != nil {
+		return classmesh.Classification{}, Exhausted, err
+	}
+	return classification, Classified, nil
 }

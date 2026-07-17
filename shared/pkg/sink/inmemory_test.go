@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/ClassMesh/classmesh/shared/pkg/domain"
+	domain "github.com/ClassMesh/classmesh"
 )
 
 func TestInMemoryCollectsInOrder(t *testing.T) {

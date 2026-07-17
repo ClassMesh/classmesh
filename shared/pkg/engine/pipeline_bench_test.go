@@ -8,7 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/ClassMesh/classmesh/shared/pkg/domain"
+	domain "github.com/ClassMesh/classmesh"
+	"github.com/ClassMesh/classmesh/rules"
 	"github.com/ClassMesh/classmesh/shared/pkg/engine"
 	"github.com/ClassMesh/classmesh/shared/pkg/sink"
 	jsonlsink "github.com/ClassMesh/classmesh/shared/pkg/sink/jsonl"
@@ -16,7 +17,6 @@ import (
 	jsonlsrc "github.com/ClassMesh/classmesh/shared/pkg/source/jsonl"
 	"github.com/ClassMesh/classmesh/shared/pkg/source/textfile"
 	"github.com/ClassMesh/classmesh/shared/pkg/stage"
-	"github.com/ClassMesh/classmesh/shared/pkg/stage/rules"
 )
 
 // loopReader replays its data forever so a bounded source can draw an

@@ -3,7 +3,7 @@ package stage
 import (
 	"context"
 
-	"github.com/ClassMesh/classmesh/shared/pkg/domain"
+	"github.com/ClassMesh/classmesh"
 )
 
 // Static is a Stage that classifies by exact-match lookup of the record's
@@ -26,13 +26,13 @@ func NewStatic(name string, categories map[string]string) *Static {
 func (s *Static) Name() string { return s.name }
 
 // Classify implements Stage.
-func (s *Static) Classify(ctx context.Context, r domain.Record) (domain.Classification, error) {
+func (s *Static) Classify(ctx context.Context, r classmesh.Record) (classmesh.Classification, error) {
 	if err := ctx.Err(); err != nil {
-		return domain.Classification{}, err
+		return classmesh.Classification{}, err
 	}
 	category, ok := s.categories[string(r.Data)]
 	if !ok {
-		return domain.Classification{}, ErrUnclassified
+		return classmesh.Classification{}, ErrUnclassified
 	}
-	return domain.Classification{Category: category, Confidence: 1, Stage: s.name}, nil
+	return classmesh.Classification{Category: category, Confidence: 1, Stage: s.name}, nil
 }

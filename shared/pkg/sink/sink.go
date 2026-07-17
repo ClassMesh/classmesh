@@ -5,7 +5,7 @@ package sink
 import (
 	"context"
 
-	"github.com/ClassMesh/classmesh/shared/pkg/domain"
+	domain "github.com/ClassMesh/classmesh"
 )
 
 // Sink consumes records together with their classification.

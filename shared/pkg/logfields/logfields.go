@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ClassMesh/classmesh/shared/pkg/domain"
+	domain "github.com/ClassMesh/classmesh"
 )
 
 // maxLevelLen is the longest recognized level word ("warning"); a longer ASCII
