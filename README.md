@@ -183,9 +183,6 @@ make test    # run all tests with -race
 make lint    # run golangci-lint from the module root
 ```
 
-Users moving from the CLI-era repository layout should read
-[`docs/migration-v0.2.md`](docs/migration-v0.2.md).
-
 ## License
 
 MIT
